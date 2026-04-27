@@ -1,0 +1,37 @@
+spring:
+  application:
+    name: cinema
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/cinema}
+    username: ${DATABASE_USERNAME:cinema}
+    password: ${DATABASE_PASSWORD:cinema}
+  flyway:
+    enabled: true
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+
+server:
+  port: ${PORT:8080}
+  servlet:
+    context-path: /api
+
+app:
+  jwt:
+    secret: ${JWT_SECRET:dev-only-change-me-dev-only-change-me-dev-only-change-me}
+    access-token-minutes: ${JWT_ACCESS_TOKEN_MINUTES:30}
+    refresh-token-days: ${JWT_REFRESH_TOKEN_DAYS:14}
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://127.0.0.1:3000}
+  booking:
+    lock-minutes: ${BOOKING_LOCK_MINUTES:5}
+    cancel-cutoff-hours: ${BOOKING_CANCEL_CUTOFF_HOURS:2}

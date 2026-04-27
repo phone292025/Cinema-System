@@ -1,0 +1,11 @@
+**/node_modules
+**/.next
+**/target
+**/.git
+**/*.log
+**/.env
+**/.env.local
+**/.vscode
+**/.idea
+**/dist
+**/build

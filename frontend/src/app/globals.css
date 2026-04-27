@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #0d0f12;
+  --foreground: #f4efe8;
+  --panel: #171b20;
+  --muted: #9ba5b2;
+  --line: #2b3139;
+  --accent: #f4b860;
+  --accent-strong: #e95c4b;
+  --success: #44c28d;
+  --danger: #f07178;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+button,
+a,
+input,
+select,
+textarea {
+  letter-spacing: 0;
+}
+
+button,
+a {
+  transition:
+    border-color 160ms ease,
+    background 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+}
+
+button:hover,
+a:hover {
+  transform: translateY(-1px);
+}
+
+.cinema-scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.cinema-scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
