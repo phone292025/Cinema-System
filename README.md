@@ -50,8 +50,12 @@ Open `http://localhost:3000`.
 
 ## Seeded Accounts
 
-- Customer: `customer@cinema.test` / `customer12345`
-- Admin: `admin@cinema.test` / `admin12345`
+| Role | Login email | Password | Use |
+| --- | --- | --- | --- |
+| Customer | `customer@cinema.test` | `customer12345` | Browse movies, select seats, pay, view tickets and booking history. |
+| Admin | `admin@cinema.test` | `admin12345` | Manage movies, cinemas, halls, showtimes, reports, audit logs, and staff ticket validation. |
+
+There is no separate default staff account. The seeded admin account can also open the staff ticket validation screen.
 
 ## Main Flow
 
