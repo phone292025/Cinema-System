@@ -10,4 +10,6 @@ public interface ShowtimeRepository extends JpaRepository<Showtime, UUID> {
     List<Showtime> findByMovieIdAndStartTimeAfterOrderByStartTimeAsc(UUID movieId, Instant startTime);
 
     List<Showtime> findByHallCinemaIdAndStartTimeAfterOrderByStartTimeAsc(UUID cinemaId, Instant startTime);
+
+    List<Showtime> findByStartTimeBetweenOrderByStartTimeAsc(Instant from, Instant to);
 }

@@ -1,8 +1,12 @@
-package com.cinema.cinema;
+package com.cinema.seat;
 
 import java.util.UUID;
 
+import com.cinema.hall.Hall;
+
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -15,21 +19,22 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 
 @Entity
-@Table(name = "halls")
+@Table(name = "seats")
 @Getter
 @Setter
 @NoArgsConstructor
-public class Hall {
+public class Seat {
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "cinema_id")
-    private Cinema cinema;
+    @JoinColumn(name = "hall_id")
+    private Hall hall;
 
-    private String name;
-    private String type;
-    private Integer totalRows;
-    private Integer totalColumns;
+    private String rowLabel;
+    private Integer seatNumber;
+
+    @Enumerated(EnumType.STRING)
+    private SeatType seatType;
 }

@@ -17,6 +17,8 @@ public interface ShowtimeSeatRepository extends JpaRepository<ShowtimeSeat, UUID
 
     List<ShowtimeSeat> findByStatusAndLockedUntilBefore(ShowtimeSeatStatus status, Instant now);
 
+    long countByStatus(ShowtimeSeatStatus status);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select ss from ShowtimeSeat ss join fetch ss.seat where ss.showtime.id = :showtimeId and ss.seat.id in :seatIds")
     List<ShowtimeSeat> lockByShowtimeAndSeatIds(@Param("showtimeId") UUID showtimeId, @Param("seatIds") List<UUID> seatIds);

@@ -35,3 +35,5 @@ app:
   booking:
     lock-minutes: ${BOOKING_LOCK_MINUTES:5}
     cancel-cutoff-hours: ${BOOKING_CANCEL_CUTOFF_HOURS:2}
+  ticket:
+    secret: ${TICKET_SECRET:${JWT_SECRET:dev-only-change-me-dev-only-change-me-dev-only-change-me}}

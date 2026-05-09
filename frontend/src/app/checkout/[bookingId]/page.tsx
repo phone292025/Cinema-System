@@ -74,7 +74,7 @@ export default function CheckoutPage() {
               <button
                 type="button"
                 onClick={pay}
-                disabled={loading || booking.status !== "LOCKED"}
+                disabled={loading || !["LOCKED", "PAYMENT_PENDING"].includes(booking.status)}
                 className="flex items-center gap-2 rounded-md bg-accent px-5 py-3 font-semibold text-background disabled:opacity-50"
               >
                 {loading ? <Loader2 className="animate-spin" size={18} aria-hidden /> : <CreditCard size={18} aria-hidden />}

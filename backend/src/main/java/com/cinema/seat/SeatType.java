@@ -1,4 +1,4 @@
-package com.cinema.cinema;
+package com.cinema.seat;
 
 public enum SeatType {
     REGULAR,

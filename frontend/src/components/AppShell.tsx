@@ -3,23 +3,24 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Film, LayoutDashboard, LogIn, LogOut, Ticket, UserRound } from "lucide-react";
+import { Bell, Film, LayoutDashboard, LogIn, LogOut, ShieldCheck, Ticket, UserRound } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { getStoredUser, logout } from "@/lib/api";
-import type { User } from "@/lib/types";
+import { apiFetch, getStoredUser, logout } from "@/lib/api";
+import type { NotificationList, User } from "@/lib/types";
 
 const nav = [
   { href: "/movies", label: "Movies", icon: Film },
   { href: "/bookings", label: "Bookings", icon: Ticket },
-  { href: "/admin", label: "Admin", icon: LayoutDashboard, adminOnly: true },
+  { href: "/staff", label: "Staff", icon: ShieldCheck, roles: ["ADMIN", "STAFF"] },
+  { href: "/admin", label: "Admin", icon: LayoutDashboard, roles: ["ADMIN"] },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
   const pathname = usePathname();
   const router = useRouter();
-  const canManage = user?.role === "ADMIN" || user?.role === "STAFF";
 
   useEffect(() => {
     const sync = () => setUser(getStoredUser());
@@ -31,6 +32,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       window.removeEventListener("storage", sync);
     };
   }, []);
+
+  useEffect(() => {
+    if (!user) {
+      setUnreadNotifications(0);
+      return;
+    }
+    apiFetch<NotificationList>("/notifications")
+      .then((items) => setUnreadNotifications(items.unreadCount))
+      .catch(() => setUnreadNotifications(0));
+  }, [user]);
 
   async function handleLogout() {
     await logout();
@@ -48,7 +59,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             Cinema
           </Link>
           <nav className="hidden items-center gap-1 md:flex">
-            {nav.filter((item) => !item.adminOnly || canManage).map((item) => {
+            {nav.filter((item) => !item.roles || (user && item.roles.includes(user.role))).map((item) => {
               const Icon = item.icon;
               const active = pathname.startsWith(item.href);
               return (
@@ -68,6 +79,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-2">
             {user ? (
               <>
+                <Link
+                  href="/notifications"
+                  className="relative grid size-10 place-items-center rounded-md border border-line text-muted hover:border-accent hover:text-accent"
+                  aria-label="Notifications"
+                  title="Notifications"
+                >
+                  <Bell size={18} aria-hidden />
+                  {unreadNotifications > 0 && (
+                    <span className="absolute -right-1 -top-1 grid min-w-5 place-items-center rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-semibold text-background">
+                      {unreadNotifications}
+                    </span>
+                  )}
+                </Link>
                 <span className="hidden items-center gap-2 text-sm text-muted sm:flex">
                   <UserRound size={16} aria-hidden />
                   {user.name}

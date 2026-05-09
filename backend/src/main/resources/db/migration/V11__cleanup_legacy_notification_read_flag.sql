@@ -1,0 +1,2 @@
+-- Keep notifications.is_read for backward-compatible reads while new code uses read_at.
+-- This migration intentionally documents that compatibility choice.

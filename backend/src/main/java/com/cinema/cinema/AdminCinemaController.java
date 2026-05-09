@@ -12,6 +12,10 @@ import com.cinema.cinema.CinemaDtos.HallResponse;
 import com.cinema.cinema.CinemaDtos.SeatRequest;
 import com.cinema.cinema.CinemaDtos.SeatResponse;
 import com.cinema.common.ApiException;
+import com.cinema.hall.Hall;
+import com.cinema.hall.HallRepository;
+import com.cinema.seat.Seat;
+import com.cinema.seat.SeatRepository;
 
 import jakarta.validation.Valid;
 
@@ -30,7 +34,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/admin")
-@PreAuthorize("hasAnyRole('ADMIN','STAFF')")
+@PreAuthorize("hasRole('ADMIN')")
 public class AdminCinemaController {
     private final CinemaRepository cinemas;
     private final HallRepository halls;

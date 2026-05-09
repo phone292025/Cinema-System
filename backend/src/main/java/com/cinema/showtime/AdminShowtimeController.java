@@ -20,7 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/admin/showtimes")
-@PreAuthorize("hasAnyRole('ADMIN','STAFF')")
+@PreAuthorize("hasRole('ADMIN')")
 public class AdminShowtimeController {
     private final ShowtimeService showtimeService;
 

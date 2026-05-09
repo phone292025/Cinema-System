@@ -11,14 +11,17 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @RestController
 @RequestMapping("/showtimes")
 public class ShowtimeController {
     private final ShowtimeService showtimeService;
+    private final SeatEventPublisher seatEvents;
 
-    public ShowtimeController(ShowtimeService showtimeService) {
+    public ShowtimeController(ShowtimeService showtimeService, SeatEventPublisher seatEvents) {
         this.showtimeService = showtimeService;
+        this.seatEvents = seatEvents;
     }
 
     @GetMapping("/{id}")
@@ -34,5 +37,10 @@ public class ShowtimeController {
     @GetMapping("/{id}/seats")
     SeatAvailabilityResponse seats(@PathVariable UUID id) {
         return showtimeService.seats(id);
+    }
+
+    @GetMapping("/{id}/seat-events")
+    SseEmitter seatEvents(@PathVariable UUID id) {
+        return seatEvents.connect(id);
     }
 }

@@ -8,15 +8,21 @@ import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 
+import com.cinema.audit.AuditLogService;
 import com.cinema.auth.AuthUser;
 import com.cinema.booking.BookingDtos.BookingResponse;
 import com.cinema.booking.BookingDtos.LockSeatsRequest;
 import com.cinema.common.ApiException;
+import com.cinema.showtime.SeatEvent;
+import com.cinema.showtime.SeatEventPublisher;
+import com.cinema.showtime.SeatEventType;
 import com.cinema.showtime.Showtime;
 import com.cinema.showtime.ShowtimeRepository;
 import com.cinema.showtime.ShowtimeSeat;
 import com.cinema.showtime.ShowtimeSeatRepository;
 import com.cinema.showtime.ShowtimeSeatStatus;
+import com.cinema.ticket.TicketRepository;
+import com.cinema.ticket.TicketStatus;
 import com.cinema.user.User;
 import com.cinema.user.UserRepository;
 import com.cinema.user.UserRole;
@@ -34,11 +40,17 @@ public class BookingService {
     private final ShowtimeSeatRepository showtimeSeats;
     private final UserRepository users;
     private final SeatLockService seatLocks;
+    private final BookingPriceCalculator priceCalculator;
+    private final BookingStateMachine stateMachine;
+    private final SeatEventPublisher seatEvents;
+    private final AuditLogService auditLogs;
+    private final TicketRepository tickets;
     private final Duration lockDuration;
     private final long cancelCutoffHours;
 
     public BookingService(BookingRepository bookings, ShowtimeRepository showtimes, ShowtimeSeatRepository showtimeSeats,
-            UserRepository users, SeatLockService seatLocks,
+            UserRepository users, SeatLockService seatLocks, BookingPriceCalculator priceCalculator, BookingStateMachine stateMachine,
+            SeatEventPublisher seatEvents, AuditLogService auditLogs, TicketRepository tickets,
             @Value("${app.booking.lock-minutes}") long lockMinutes,
             @Value("${app.booking.cancel-cutoff-hours}") long cancelCutoffHours) {
         this.bookings = bookings;
@@ -46,6 +58,11 @@ public class BookingService {
         this.showtimeSeats = showtimeSeats;
         this.users = users;
         this.seatLocks = seatLocks;
+        this.priceCalculator = priceCalculator;
+        this.stateMachine = stateMachine;
+        this.seatEvents = seatEvents;
+        this.auditLogs = auditLogs;
+        this.tickets = tickets;
         this.lockDuration = Duration.ofMinutes(lockMinutes);
         this.cancelCutoffHours = cancelCutoffHours;
     }
@@ -77,7 +94,7 @@ public class BookingService {
         booking.setBookingCode(generateCode());
         booking.setStatus(BookingStatus.LOCKED);
         booking.setExpiresAt(now.plus(lockDuration));
-        booking.setTotalAmount(seats.stream().map(ShowtimeSeat::getPrice).reduce(BigDecimal.ZERO, BigDecimal::add));
+        booking.setTotalAmount(priceCalculator.total(seats));
         seats.stream()
                 .sorted(Comparator.comparing((ShowtimeSeat seat) -> seat.getSeat().getRowLabel()).thenComparing(seat -> seat.getSeat().getSeatNumber()))
                 .forEach(seat -> {
@@ -96,7 +113,10 @@ public class BookingService {
         seats.forEach(seat -> {
             seat.setStatus(ShowtimeSeatStatus.LOCKED);
             seat.setLockedUntil(booking.getExpiresAt());
+            seatEvents.publish(SeatEvent.from(SeatEventType.SEAT_LOCKED, seat));
         });
+        auditLogs.record(authUser, "SEAT_LOCKED", "Booking", booking.getId().toString(), null,
+                uniqueSeatIds.stream().map(UUID::toString).toList().toString(), null);
         return BookingResponse.from(booking);
     }
 
@@ -116,19 +136,22 @@ public class BookingService {
     public BookingResponse cancel(AuthUser authUser, UUID bookingId) {
         Booking booking = bookings.lockById(bookingId).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Booking not found."));
         assertOwnsOrAdmin(authUser, booking);
-        if (booking.getStatus() == BookingStatus.PAID
+        if ((booking.getStatus() == BookingStatus.PAID || booking.getStatus() == BookingStatus.TICKET_ISSUED)
                 && Instant.now().isAfter(booking.getShowtime().getStartTime().minus(Duration.ofHours(cancelCutoffHours)))) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Booking can only be cancelled at least %d hours before showtime.".formatted(cancelCutoffHours));
         }
-        if (booking.getStatus() == BookingStatus.PAID) {
-            booking.setStatus(BookingStatus.REFUNDED);
-        } else if (booking.getStatus() == BookingStatus.LOCKED || booking.getStatus() == BookingStatus.PENDING) {
-            booking.setStatus(BookingStatus.CANCELLED);
+        if (booking.getStatus() == BookingStatus.PAID || booking.getStatus() == BookingStatus.TICKET_ISSUED) {
+            booking.setStatus(stateMachine.transition(booking.getStatus(), BookingEvent.REFUND_REQUESTED));
+            booking.setStatus(stateMachine.transition(booking.getStatus(), BookingEvent.REFUNDED));
+        } else if (booking.getStatus() == BookingStatus.LOCKED || booking.getStatus() == BookingStatus.PAYMENT_PENDING) {
+            booking.setStatus(stateMachine.transition(booking.getStatus(), BookingEvent.CANCELLED));
         } else {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Booking cannot be cancelled from status " + booking.getStatus());
         }
+        tickets.findByBookingId(booking.getId()).ifPresent(ticket -> ticket.setStatus(TicketStatus.CANCELLED));
         releaseSeats(booking);
         booking.setUpdatedAt(Instant.now());
+        auditLogs.record(authUser, "BOOKING_CANCELLED", "Booking", booking.getId().toString(), null, booking.getStatus().name(), null);
         return BookingResponse.from(booking);
     }
 
@@ -136,11 +159,18 @@ public class BookingService {
     @Transactional
     public void expireStaleBookings() {
         Instant now = Instant.now();
-        bookings.findByStatusInAndExpiresAtBefore(List.of(BookingStatus.LOCKED, BookingStatus.PENDING), now).forEach(booking -> {
-            booking.setStatus(BookingStatus.EXPIRED);
+        bookings.findByStatusInAndExpiresAtBefore(List.of(BookingStatus.LOCKED, BookingStatus.PAYMENT_PENDING), now).forEach(booking -> {
+            booking.setStatus(stateMachine.transition(booking.getStatus(), BookingEvent.EXPIRED));
             booking.setUpdatedAt(now);
             releaseSeats(booking);
+            auditLogs.system("BOOKING_EXPIRED", "Booking", booking.getId().toString(), booking.getStatus().name());
         });
+        cleanupExpiredLocks();
+    }
+
+    @Scheduled(fixedDelay = 60_000)
+    @Transactional
+    public void releaseExpiredSeatLocks() {
         cleanupExpiredLocks();
     }
 
@@ -151,6 +181,7 @@ public class BookingService {
             if (showtimeSeat.getStatus() == ShowtimeSeatStatus.LOCKED || showtimeSeat.getStatus() == ShowtimeSeatStatus.BOOKED) {
                 showtimeSeat.setStatus(ShowtimeSeatStatus.AVAILABLE);
                 showtimeSeat.setLockedUntil(null);
+                seatEvents.publish(SeatEvent.from(SeatEventType.SEAT_RELEASED, showtimeSeat));
             }
         }));
         seatLocks.release(booking.getShowtime().getId(), seatIds);
@@ -167,6 +198,7 @@ public class BookingService {
             }
             showtimeSeat.setStatus(ShowtimeSeatStatus.BOOKED);
             showtimeSeat.setLockedUntil(null);
+            seatEvents.publish(SeatEvent.from(SeatEventType.SEAT_BOOKED, showtimeSeat));
         }));
         seatLocks.release(booking.getShowtime().getId(), booking.getItems().stream().map(item -> item.getSeat().getId()).toList());
     }
@@ -176,6 +208,7 @@ public class BookingService {
         showtimeSeats.findByStatusAndLockedUntilBefore(ShowtimeSeatStatus.LOCKED, now).forEach(seat -> {
             seat.setStatus(ShowtimeSeatStatus.AVAILABLE);
             seat.setLockedUntil(null);
+            seatEvents.publish(SeatEvent.from(SeatEventType.SEAT_EXPIRED, seat));
         });
     }
 
@@ -183,6 +216,7 @@ public class BookingService {
         if (seat.getStatus() == ShowtimeSeatStatus.LOCKED && seat.getLockedUntil() != null && seat.getLockedUntil().isBefore(now)) {
             seat.setStatus(ShowtimeSeatStatus.AVAILABLE);
             seat.setLockedUntil(null);
+            seatEvents.publish(SeatEvent.from(SeatEventType.SEAT_EXPIRED, seat));
         }
     }
 

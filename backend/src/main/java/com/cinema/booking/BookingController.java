@@ -5,6 +5,7 @@ import java.util.UUID;
 import com.cinema.auth.AuthUser;
 import com.cinema.booking.BookingDtos.BookingResponse;
 import com.cinema.booking.BookingDtos.LockSeatsRequest;
+import com.cinema.idempotency.Idempotent;
 
 import jakarta.validation.Valid;
 
@@ -28,12 +29,14 @@ public class BookingController {
     }
 
     @PostMapping("/lock-seats")
+    @Idempotent
     @ResponseStatus(HttpStatus.CREATED)
     BookingResponse lockSeats(@AuthenticationPrincipal AuthUser user, @Valid @RequestBody LockSeatsRequest request) {
         return bookingService.lockSeats(user, request);
     }
 
     @PostMapping
+    @Idempotent
     @ResponseStatus(HttpStatus.CREATED)
     BookingResponse create(@AuthenticationPrincipal AuthUser user, @Valid @RequestBody LockSeatsRequest request) {
         return bookingService.lockSeats(user, request);

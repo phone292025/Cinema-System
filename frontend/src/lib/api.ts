@@ -1,6 +1,6 @@
 import type { AuthResponse, User } from "./types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080/api";
+export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8080/api";
 const ACCESS_KEY = "cinema.accessToken";
 const REFRESH_KEY = "cinema.refreshToken";
 const USER_KEY = "cinema.user";
@@ -40,6 +40,7 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
   headers.set("Content-Type", "application/json");
   const token = getAccessToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
+  ensureIdempotencyHeader(headers, options.method);
 
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
@@ -61,7 +62,48 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
     return undefined as T;
   }
 
-  return response.json() as Promise<T>;
+  const text = await response.text();
+  return (text ? JSON.parse(text) : undefined) as T;
+}
+
+export async function apiBlob(path: string, options: RequestInit = {}): Promise<Blob> {
+  const headers = new Headers(options.headers);
+  const token = getAccessToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  ensureIdempotencyHeader(headers, options.method);
+
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers,
+  });
+
+  if (!response.ok) {
+    let message = `Request failed with ${response.status}`;
+    try {
+      const body = (await response.json()) as { message?: string };
+      message = body.message ?? message;
+    } catch {
+      // Keep the status-based message.
+    }
+    throw new Error(message);
+  }
+
+  return response.blob();
+}
+
+function ensureIdempotencyHeader(headers: Headers, method = "GET") {
+  const normalized = method.toUpperCase();
+  if (!["POST", "PUT", "PATCH", "DELETE"].includes(normalized) || headers.has("Idempotency-Key")) {
+    return;
+  }
+  headers.set("Idempotency-Key", createRequestId());
+}
+
+function createRequestId() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `req-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 export async function logout() {

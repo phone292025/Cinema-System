@@ -4,7 +4,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
-import com.cinema.cinema.Hall;
+import com.cinema.hall.Hall;
 import com.cinema.movie.Movie;
 
 import jakarta.persistence.Entity;

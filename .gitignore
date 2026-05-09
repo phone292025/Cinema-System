@@ -1,6 +1,8 @@
 backend/target/
 frontend/.next/
 frontend/node_modules/
+.vscode/
+.idea/
 *.log
 logs/
 .git-backups/

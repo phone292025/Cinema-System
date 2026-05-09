@@ -1,6 +1,6 @@
-# Cinema MVP
+# Cinema System MVP+
 
-Greenfield cinema booking MVP using a modular monolith backend and a Next.js frontend.
+Cinema booking system using a modular monolith backend and a Next.js frontend. It includes live seat locking, mock payments, QR tickets, staff validation, notifications, audit logs, and admin reporting.
 
 ## Stack
 
@@ -12,21 +12,19 @@ Greenfield cinema booking MVP using a modular monolith backend and a Next.js fro
 
 ## Local Run
 
-For normal daily startup, use the Codex-safe lighter command:
+For normal daily startup, use the lightweight command:
 
 ```powershell
-.\start-codex-safe.ps1
+.\start-light.ps1
 ```
 
-This reuses existing Docker images, avoids rebuilding everything every time, and sends noisy Docker output to `logs/start-codex-safe.log` instead of flooding the Codex app.
+This reuses existing Docker images and avoids rebuilding everything every time.
 
 Only rebuild after dependency, Dockerfile, or major source changes:
 
 ```powershell
 .\rebuild-once.ps1
 ```
-
-Avoid running `docker compose up --build` directly inside Codex unless you really need to watch the raw logs. Large Docker build output can make the Codex desktop app look like it is reconnecting or not responding.
 
 Stop everything:
 
@@ -61,6 +59,13 @@ Open `http://localhost:3000`.
 2. Open Movies, pick a showtime, and select available seats.
 3. Lock seats; Redis stores keys shaped like `lock:showtime:{showtimeId}:seat:{seatId}`.
 4. Pay with the mock gateway.
-5. View the confirmed booking in history.
+5. Wait for the outbox worker to issue a QR ticket.
+6. View the confirmed booking and ticket in history.
+7. Log in as admin/staff and validate the ticket from the staff screen.
 
 The backend revalidates seat state before locking and before confirming payment.
+
+## Seeded Staff/Admin Areas
+
+- Staff ticket validation: `http://localhost:3000/staff`
+- Admin dashboard: `http://localhost:3000/admin`

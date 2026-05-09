@@ -6,13 +6,13 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 
-import com.cinema.cinema.Hall;
-import com.cinema.cinema.HallRepository;
-import com.cinema.cinema.Seat;
-import com.cinema.cinema.SeatRepository;
 import com.cinema.common.ApiException;
+import com.cinema.hall.Hall;
+import com.cinema.hall.HallRepository;
 import com.cinema.movie.Movie;
 import com.cinema.movie.MovieRepository;
+import com.cinema.seat.Seat;
+import com.cinema.seat.SeatRepository;
 import com.cinema.showtime.ShowtimeDtos.SeatAvailability;
 import com.cinema.showtime.ShowtimeDtos.SeatAvailabilityResponse;
 import com.cinema.showtime.ShowtimeDtos.ShowtimeRequest;

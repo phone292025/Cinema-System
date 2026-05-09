@@ -1,4 +1,4 @@
-package com.cinema.cinema;
+package com.cinema.seat;
 
 import java.util.List;
 import java.util.UUID;

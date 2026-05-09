@@ -11,13 +11,16 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.cinema.audit.AuditLogService;
 import com.cinema.booking.Booking;
 import com.cinema.booking.BookingRepository;
 import com.cinema.booking.BookingService;
+import com.cinema.booking.BookingStateMachine;
 import com.cinema.booking.BookingStatus;
 import com.cinema.cinema.Cinema;
-import com.cinema.cinema.Hall;
+import com.cinema.hall.Hall;
 import com.cinema.movie.Movie;
+import com.cinema.outbox.OutboxService;
 import com.cinema.showtime.Showtime;
 import com.cinema.user.User;
 import com.cinema.user.UserRole;
@@ -30,6 +33,8 @@ class PaymentServiceTest {
         PaymentRepository payments = mock(PaymentRepository.class);
         BookingRepository bookings = mock(BookingRepository.class);
         BookingService bookingService = mock(BookingService.class);
+        OutboxService outbox = mock(OutboxService.class);
+        AuditLogService auditLogs = mock(AuditLogService.class);
         Booking booking = paidBooking();
         Payment payment = new Payment();
         payment.setId(UUID.randomUUID());
@@ -43,7 +48,7 @@ class PaymentServiceTest {
         when(payments.findByPaymentReference("PAY-123")).thenReturn(Optional.of(payment));
         when(bookings.lockById(booking.getId())).thenReturn(Optional.of(booking));
 
-        PaymentService service = new PaymentService(payments, bookings, bookingService);
+        PaymentService service = new PaymentService(payments, bookings, bookingService, new BookingStateMachine(), outbox, auditLogs);
         PaymentDtos.PaymentResponse response = service.mockCallback(new PaymentDtos.MockCallbackRequest("PAY-123", PaymentStatus.SUCCEEDED));
 
         assertThat(response.status()).isEqualTo(PaymentStatus.SUCCEEDED);

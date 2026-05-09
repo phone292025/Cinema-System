@@ -1,4 +1,4 @@
-package com.cinema.cinema;
+package com.cinema.hall;
 
 import java.util.List;
 import java.util.UUID;

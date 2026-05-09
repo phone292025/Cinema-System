@@ -79,7 +79,7 @@ export type Booking = {
   hallName: string;
   startTime: string;
   totalAmount: number;
-  status: "PENDING" | "LOCKED" | "PAID" | "CANCELLED" | "EXPIRED" | "REFUNDED";
+  status: "LOCKED" | "PAYMENT_PENDING" | "PAID" | "TICKET_ISSUED" | "CANCELLED" | "EXPIRED" | "REFUND_PENDING" | "REFUNDED";
   expiresAt?: string;
   seats: BookingSeat[];
 };
@@ -89,7 +89,7 @@ export type Payment = {
   bookingId: string;
   paymentReference: string;
   amount: number;
-  status: "PENDING" | "SUCCEEDED" | "FAILED" | "REFUNDED";
+  status: "PENDING" | "PROCESSING" | "SUCCEEDED" | "FAILED" | "REFUND_PENDING" | "REFUNDED";
   method: string;
   paidAt?: string;
   booking: Booking;
@@ -100,5 +100,60 @@ export type Dashboard = {
   showtimes: number;
   bookings: number;
   paidBookings: number;
+  failedPayments?: number;
   revenue: number;
+  occupancyRate?: number;
+};
+
+export type SeatEvent = {
+  type: "SEAT_LOCKED" | "SEAT_RELEASED" | "SEAT_BOOKED" | "SEAT_BLOCKED" | "SEAT_EXPIRED";
+  showtimeId: string;
+  seatId: string;
+  seatCode: string;
+  status: SeatAvailability["status"];
+  price: number;
+  expiresAt?: string | null;
+};
+
+export type Ticket = {
+  id: string;
+  bookingId: string;
+  bookingCode: string;
+  ticketCode: string;
+  status: "ISSUED" | "USED" | "CANCELLED" | "EXPIRED";
+  issuedAt: string;
+  usedAt?: string;
+  movieTitle: string;
+  cinemaName: string;
+  hallName: string;
+  startTime: string;
+  seats: BookingSeat[];
+  qrUrl: string;
+};
+
+export type Notification = {
+  id: string;
+  type: string;
+  title: string;
+  message: string;
+  read: boolean;
+  readAt?: string | null;
+  createdAt: string;
+};
+
+export type NotificationList = {
+  unreadCount: number;
+  notifications: Notification[];
+};
+
+export type AuditLog = {
+  id: string;
+  actorRole?: string;
+  action: string;
+  entityType: string;
+  entityId?: string;
+  oldValue?: string;
+  newValue?: string;
+  ipAddress?: string;
+  createdAt: string;
 };

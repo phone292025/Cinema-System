@@ -3,7 +3,7 @@ package com.cinema.booking;
 import java.math.BigDecimal;
 import java.util.UUID;
 
-import com.cinema.cinema.Seat;
+import com.cinema.seat.Seat;
 
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;

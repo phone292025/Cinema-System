@@ -17,6 +17,10 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
 
     List<Booking> findByStatusInAndExpiresAtBefore(List<BookingStatus> statuses, Instant now);
 
+    List<Booking> findByStatusIn(List<BookingStatus> statuses);
+
+    Optional<Booking> findByBookingCodeIgnoreCase(String bookingCode);
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select distinct b from Booking b left join fetch b.items where b.id = :id")
     Optional<Booking> lockById(@Param("id") UUID id);

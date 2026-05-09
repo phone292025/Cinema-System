@@ -1,6 +1,7 @@
 package com.cinema.payment;
 
 import com.cinema.auth.AuthUser;
+import com.cinema.idempotency.Idempotent;
 import com.cinema.payment.PaymentDtos.InitiatePaymentRequest;
 import com.cinema.payment.PaymentDtos.MockCallbackRequest;
 import com.cinema.payment.PaymentDtos.PaymentResponse;
@@ -23,11 +24,13 @@ public class PaymentController {
     }
 
     @PostMapping("/initiate")
+    @Idempotent
     PaymentResponse initiate(@AuthenticationPrincipal AuthUser user, @Valid @RequestBody InitiatePaymentRequest request) {
         return paymentService.initiate(user, request);
     }
 
     @PostMapping("/mock-callback")
+    @Idempotent
     PaymentResponse mockCallback(@Valid @RequestBody MockCallbackRequest request) {
         return paymentService.mockCallback(request);
     }

@@ -1,11 +1,11 @@
 "use client";
 
 import { Armchair, Loader2, LockKeyhole, TicketCheck } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { apiFetch, getAccessToken } from "@/lib/api";
-import type { Booking, SeatAvailability } from "@/lib/types";
+import { API_BASE, apiFetch, getAccessToken } from "@/lib/api";
+import type { Booking, SeatAvailability, SeatEvent } from "@/lib/types";
 
 type Props = {
   showtimeId: string;
@@ -14,20 +14,50 @@ type Props = {
 };
 
 export function SeatPicker({ showtimeId, seats, demoMode = false }: Props) {
+  const [liveSeats, setLiveSeats] = useState(seats);
   const [selected, setSelected] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
+  useEffect(() => {
+    setLiveSeats(seats);
+  }, [seats]);
+
+  useEffect(() => {
+    if (demoMode) return undefined;
+    const source = new EventSource(`${API_BASE}/showtimes/${showtimeId}/seat-events`);
+    const apply = (message: MessageEvent) => {
+      const event = JSON.parse(message.data) as SeatEvent;
+      setLiveSeats((current) =>
+        current.map((seat) =>
+          seat.seatId === event.seatId
+            ? { ...seat, status: event.status, price: event.price, lockedUntil: event.expiresAt ?? undefined }
+            : seat,
+        ),
+      );
+      if (event.status !== "AVAILABLE") {
+        setSelected((current) => current.filter((seatId) => seatId !== event.seatId));
+      }
+    };
+    ["SEAT_LOCKED", "SEAT_RELEASED", "SEAT_BOOKED", "SEAT_BLOCKED", "SEAT_EXPIRED"].forEach((name) =>
+      source.addEventListener(name, apply),
+    );
+    source.onerror = () => {
+      source.close();
+    };
+    return () => source.close();
+  }, [demoMode, showtimeId]);
+
   const grouped = useMemo(() => {
-    return seats.reduce<Record<string, SeatAvailability[]>>((acc, seat) => {
+    return liveSeats.reduce<Record<string, SeatAvailability[]>>((acc, seat) => {
       acc[seat.rowLabel] ??= [];
       acc[seat.rowLabel].push(seat);
       return acc;
     }, {});
-  }, [seats]);
+  }, [liveSeats]);
 
-  const total = seats
+  const total = liveSeats
     .filter((seat) => selected.includes(seat.seatId))
     .reduce((sum, seat) => sum + Number(seat.price), 0);
 
@@ -82,7 +112,7 @@ export function SeatPicker({ showtimeId, seats, demoMode = false }: Props) {
                       type="button"
                       onClick={() => toggle(seat)}
                       disabled={disabled}
-                      title={`${seat.rowLabel}${seat.seatNumber} ${seat.status}`}
+                      title={`${seat.rowLabel}${seat.seatNumber} ${seat.status}${seat.lockedUntil ? ` until ${new Date(seat.lockedUntil).toLocaleTimeString()}` : ""}`}
                       className={`grid size-10 place-items-center rounded-md border text-xs font-semibold ${
                         active
                           ? "border-accent bg-accent text-background"

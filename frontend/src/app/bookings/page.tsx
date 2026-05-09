@@ -1,6 +1,7 @@
 "use client";
 
 import { RotateCcw } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { AppShell } from "@/components/AppShell";
@@ -49,7 +50,15 @@ export default function BookingsPage() {
                 </div>
                 <div className="flex items-center gap-3">
                   <StatusBadge status={booking.status} />
-                  {(booking.status === "PAID" || booking.status === "LOCKED") && (
+                  {booking.status === "TICKET_ISSUED" && (
+                    <Link
+                      href={`/confirmation/${booking.id}`}
+                      className="rounded-md border border-line px-3 py-2 text-sm text-muted hover:border-accent hover:text-accent"
+                    >
+                      Ticket
+                    </Link>
+                  )}
+                  {(booking.status === "PAID" || booking.status === "TICKET_ISSUED" || booking.status === "LOCKED" || booking.status === "PAYMENT_PENDING") && (
                     <button
                       type="button"
                       onClick={() => cancel(booking.id)}

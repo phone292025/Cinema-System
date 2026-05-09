@@ -24,7 +24,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/admin/movies")
-@PreAuthorize("hasAnyRole('ADMIN','STAFF')")
+@PreAuthorize("hasRole('ADMIN')")
 public class AdminMovieController {
     private final MovieRepository movies;
 

@@ -2,6 +2,10 @@ package com.cinema.cinema;
 
 import java.util.UUID;
 
+import com.cinema.hall.Hall;
+import com.cinema.seat.Seat;
+import com.cinema.seat.SeatType;
+
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
