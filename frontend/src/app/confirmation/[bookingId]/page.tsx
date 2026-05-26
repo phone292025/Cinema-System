@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { CheckCircle2, History, QrCode } from "lucide-react";
@@ -73,7 +74,18 @@ export default function ConfirmationPage() {
           <div className="mt-5 rounded-lg border border-line bg-panel p-5 text-left">
             <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
               <div className="grid size-44 place-items-center rounded-md border border-line bg-white p-3">
-                {qrUrl ? <img src={qrUrl} alt={`QR ticket ${ticket.ticketCode}`} className="h-full w-full object-contain" /> : <QrCode className="text-background" size={68} aria-hidden />}
+                {qrUrl ? (
+                  <Image
+                    src={qrUrl}
+                    alt={`QR ticket ${ticket.ticketCode}`}
+                    width={152}
+                    height={152}
+                    unoptimized
+                    className="h-full w-full object-contain"
+                  />
+                ) : (
+                  <QrCode className="text-background" size={68} aria-hidden />
+                )}
               </div>
               <div>
                 <p className="font-mono text-sm text-accent">{ticket.ticketCode}</p>

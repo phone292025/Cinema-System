@@ -26,61 +26,97 @@ const bookingFlow: { title: string; body: string; icon: LucideIcon }[] = [
 ];
 
 const posterMovies = demoMovies.slice(0, 10);
+const mobileHeroMovie = demoMovies[2] ?? featuredMovie;
+const mobilePosterGroups = chunk(demoMovies, 4);
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const groups: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    groups.push(items.slice(index, index + size));
+  }
+  return groups;
+}
 
 export default function Home() {
   return (
     <AppShell>
-      <section className="px-3 pb-10 pt-5 md:hidden">
-        <div className="mb-5 flex items-center gap-6 overflow-x-auto whitespace-nowrap">
-          <span className="border-b-4 border-accent-strong pb-2 text-xl font-semibold uppercase text-foreground">Now showing</span>
-          <span className="pb-2 text-xl font-semibold uppercase text-muted">Kids</span>
-          <span className="pb-2 text-xl font-semibold uppercase text-muted">Coming soon</span>
-        </div>
+      <section className="md:hidden">
+        <Link href={`/movies/${mobileHeroMovie.id}`} className="group relative block min-h-[470px] overflow-hidden">
+          <Image
+            src="/posters/dark-knight-hero-hd.jpg"
+            alt={`${mobileHeroMovie.title} cinema artwork`}
+            fill
+            priority
+            sizes="100vw"
+            className="object-cover transition duration-700 group-active:scale-[1.02]"
+          />
+          <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(13,15,18,0.04)_0%,rgba(13,15,18,0.16)_35%,rgba(13,15,18,0.94)_86%,#0d0f12_100%)]" />
+          <div className="absolute inset-x-0 bottom-0 px-4 pb-5">
+            <p className="mb-2 font-mono text-[11px] font-semibold uppercase text-accent">Tonight&apos;s pick</p>
+            <h1 className="max-w-[12ch] text-4xl font-semibold leading-none text-foreground">{mobileHeroMovie.title}</h1>
+            <div className="mt-3 flex items-center gap-3 text-xs text-foreground/78">
+              <span>{mobileHeroMovie.rating}</span>
+              <span>{mobileHeroMovie.durationMinutes} min</span>
+              <span>IMDb {mobileHeroMovie.imdbRating?.toFixed(1)}</span>
+            </div>
+          </div>
+        </Link>
 
-        <div className="cinema-scrollbar-none overflow-x-auto scroll-smooth pb-2">
-          <div className="flex snap-x snap-mandatory gap-3">
-            {posterMovies.map((movie) => (
-              <Link
-                key={movie.id}
-                href={`/movies/${movie.id}`}
-                className="group shrink-0 basis-[calc((100%_-_0.75rem)/2)] snap-start overflow-hidden rounded-lg border border-accent-strong/55 bg-panel"
-              >
-                <div className="relative aspect-[2/3] bg-background">
-                  <Image
-                    src={movie.posterUrl || "/cinema-hero.png"}
-                    alt={movie.title}
-                    fill
-                    sizes="50vw"
-                    className="object-cover transition duration-300 group-hover:scale-[1.03]"
-                  />
-                </div>
-                <div className="flex min-h-[96px] flex-col justify-center p-3 text-center">
-                  <h2 className="line-clamp-2 text-base font-semibold leading-6">{movie.title}</h2>
-                  <p className="mt-2 text-sm font-semibold text-accent">IMDb {movie.imdbRating?.toFixed(1)}</p>
-                </div>
-              </Link>
+        <div className="-mt-1 px-4">
+          <div className="flex justify-center gap-2 py-4" aria-hidden>
+            {demoMovies.slice(0, 9).map((movie, index) => (
+              <span key={movie.id} className={`size-2 rounded-full ${index === 2 ? "bg-accent-strong" : "bg-foreground/35"}`} />
             ))}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Link
+              href={`/movies/${mobileHeroMovie.id}`}
+              className="flex min-h-14 items-center justify-center rounded-[1.25rem] border-2 border-foreground px-3 text-base font-medium text-foreground active:scale-[0.98]"
+            >
+              Showtimes
+            </Link>
+            <Link
+              href="/movies"
+              className="flex min-h-14 items-center justify-center rounded-[1.25rem] bg-[linear-gradient(90deg,#ff4a2f,#c9172b)] px-3 text-base font-semibold text-white active:scale-[0.98]"
+            >
+              Book now
+            </Link>
           </div>
         </div>
 
-        <Link href="/movies" className="mt-4 flex items-center justify-center gap-2 rounded-md bg-accent px-5 py-3 text-sm font-semibold text-background">
-          View all movies
-          <ArrowRight size={18} aria-hidden />
-        </Link>
-
-        <section className="mt-8">
-          <p className="font-mono text-xs uppercase text-accent">Booking flow</p>
-          <h2 className="mt-2 text-2xl font-semibold leading-tight">Pick a showtime, hold your chairs, then pay.</h2>
-          <div className="mt-4 grid grid-cols-2 gap-3">
-            {bookingFlow.map(({ title, icon: Icon }, index) => (
-              <div key={title} className="rounded-lg border border-line bg-panel p-4">
-                <div className="flex items-center justify-between">
-                  <Icon className="text-accent" size={20} aria-hidden />
-                  <span className="font-mono text-xs text-muted">{String(index + 1).padStart(2, "0")}</span>
+        <section className="px-4 pb-4 pt-8">
+          <h2 className="text-center text-4xl font-light leading-tight text-foreground">Movie Showtimes</h2>
+          <div className="cinema-scrollbar-none mt-7 flex gap-8 overflow-x-auto whitespace-nowrap">
+            <span className="border-b-4 border-accent-strong pb-3 text-2xl font-medium uppercase text-foreground">Now showing</span>
+            <span className="pb-3 text-2xl font-medium uppercase text-muted">Kids</span>
+            <span className="pb-3 text-2xl font-medium uppercase text-muted">Coming soon</span>
+          </div>
+          <div className="-mx-4 mt-6 overflow-hidden">
+            <div className="cinema-scrollbar-none flex snap-x snap-mandatory gap-4 overflow-x-auto scroll-smooth px-4 pb-2">
+              {mobilePosterGroups.map((group) => (
+                <div key={group.map((movie) => movie.id).join("-")} className="grid min-w-full snap-start grid-cols-2 gap-4">
+                  {group.map((movie) => (
+                    <Link
+                      key={movie.id}
+                      href={`/movies/${movie.id}`}
+                      className="overflow-hidden rounded-lg border-2 border-foreground/85 bg-[#111316] active:scale-[0.98]"
+                    >
+                      <div className="relative aspect-[2/3] bg-panel">
+                        <Image src={movie.posterUrl || "/cinema-hero.png"} alt={movie.title} fill sizes="50vw" className="object-cover" />
+                      </div>
+                      <div className="grid min-h-[92px] place-items-center px-3 py-4 text-center">
+                        <h3 className="line-clamp-2 text-base font-semibold leading-6">{movie.title}</h3>
+                      </div>
+                    </Link>
+                  ))}
                 </div>
-                <h3 className="mt-5 text-sm font-semibold">{title}</h3>
-              </div>
-            ))}
+              ))}
+            </div>
+            {mobilePosterGroups.length > 1 && (
+              <p className="px-4 pt-2 text-right text-xs font-medium uppercase tracking-[0.18em] text-muted">
+                Swipe right for more
+              </p>
+            )}
           </div>
         </section>
       </section>

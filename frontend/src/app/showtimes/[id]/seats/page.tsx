@@ -39,10 +39,10 @@ export default function SeatSelectionPage() {
 
   return (
     <AppShell>
-      <section className="mx-auto max-w-7xl px-4 py-10 sm:px-6">
+      <section className="mx-auto max-w-7xl overflow-hidden px-4 py-7 sm:px-6 md:py-10">
         <div className="mb-8">
           <p className="font-mono text-xs uppercase text-accent">Seat map</p>
-          <h1 className="mt-2 text-4xl font-semibold">{showtime?.movieTitle ?? "Select seats"}</h1>
+          <h1 className="mt-2 text-3xl font-semibold leading-tight sm:text-4xl">{showtime?.movieTitle ?? "Select seats"}</h1>
           {showtime && (
             <p className="mt-2 text-muted">
               {showtime.cinemaName}, {showtime.hallName} · {new Date(showtime.startTime).toLocaleString()}

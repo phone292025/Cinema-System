@@ -27,12 +27,12 @@ import {
   TicketCheck,
   WalletCards,
 } from "lucide-react";
-import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 import { AppShell } from "@/components/AppShell";
 import { StatusBadge } from "@/components/StatusBadge";
-import { apiFetch, getStoredUser } from "@/lib/api";
-import type { AuditLog, Cinema, Dashboard, Movie, Showtime, User } from "@/lib/types";
+import { apiFetch, getStoredUser, subscribeToAuthChanges } from "@/lib/api";
+import type { AuditLog, Cinema, Dashboard, Movie, Showtime } from "@/lib/types";
 
 type Hall = {
   id: string;
@@ -104,7 +104,7 @@ const sections: Array<{
 ];
 
 export default function AdminPage() {
-  const [user, setUser] = useState<User | null>(null);
+  const user = useSyncExternalStore(subscribeToAuthChanges, getStoredUser, () => null);
   const [activeSection, setActiveSection] = useState<AdminSection>("dashboard");
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [movies, setMovies] = useState<Movie[]>([]);
@@ -195,17 +195,6 @@ export default function AdminPage() {
       .catch((err) => setError(err instanceof Error ? err.message : "Dashboard request failed."))
       .finally(() => setIsLoading(false));
   }, [hallForm.cinemaId, loadHalls, user?.role]);
-
-  useEffect(() => {
-    const sync = () => setUser(getStoredUser());
-    sync();
-    window.addEventListener("cinema-auth", sync);
-    window.addEventListener("storage", sync);
-    return () => {
-      window.removeEventListener("cinema-auth", sync);
-      window.removeEventListener("storage", sync);
-    };
-  }, []);
 
   useEffect(() => {
     if (!canManage) return undefined;

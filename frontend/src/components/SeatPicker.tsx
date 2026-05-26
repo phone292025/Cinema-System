@@ -14,28 +14,35 @@ type Props = {
 };
 
 export function SeatPicker({ showtimeId, seats, demoMode = false }: Props) {
-  const [liveSeats, setLiveSeats] = useState(seats);
+  const [seatState, setSeatState] = useState({
+    showtimeId,
+    sourceSeats: seats,
+    liveSeats: seats,
+  });
   const [selected, setSelected] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
-  useEffect(() => {
-    setLiveSeats(seats);
-  }, [seats]);
+  const liveSeats = seatState.showtimeId === showtimeId && seatState.sourceSeats === seats ? seatState.liveSeats : seats;
 
   useEffect(() => {
     if (demoMode) return undefined;
     const source = new EventSource(`${API_BASE}/showtimes/${showtimeId}/seat-events`);
     const apply = (message: MessageEvent) => {
       const event = JSON.parse(message.data) as SeatEvent;
-      setLiveSeats((current) =>
-        current.map((seat) =>
-          seat.seatId === event.seatId
-            ? { ...seat, status: event.status, price: event.price, lockedUntil: event.expiresAt ?? undefined }
-            : seat,
-        ),
-      );
+      setSeatState((current) => {
+        const currentSeats = current.showtimeId === showtimeId && current.sourceSeats === seats ? current.liveSeats : seats;
+        return {
+          showtimeId,
+          sourceSeats: seats,
+          liveSeats: currentSeats.map((seat) =>
+            seat.seatId === event.seatId
+              ? { ...seat, status: event.status, price: event.price, lockedUntil: event.expiresAt ?? undefined }
+              : seat,
+          ),
+        };
+      });
       if (event.status !== "AVAILABLE") {
         setSelected((current) => current.filter((seatId) => seatId !== event.seatId));
       }
@@ -47,7 +54,7 @@ export function SeatPicker({ showtimeId, seats, demoMode = false }: Props) {
       source.close();
     };
     return () => source.close();
-  }, [demoMode, showtimeId]);
+  }, [demoMode, seats, showtimeId]);
 
   const grouped = useMemo(() => {
     return liveSeats.reduce<Record<string, SeatAvailability[]>>((acc, seat) => {
@@ -93,16 +100,20 @@ export function SeatPicker({ showtimeId, seats, demoMode = false }: Props) {
   }
 
   return (
-    <section className="grid gap-6 lg:grid-cols-[1fr_320px]">
-      <div className="rounded-lg border border-line bg-panel p-5">
+    <section className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="min-w-0 overflow-hidden rounded-lg border border-line bg-panel p-3 sm:p-5">
         <div className="mb-5 rounded-md border border-line bg-background px-4 py-3 text-center text-xs font-semibold uppercase text-muted">
           Screen
         </div>
-        <div className="overflow-x-auto pb-2">
-          <div className="mx-auto w-max space-y-3">
+        <div className="pb-2">
+          <div className="mx-auto w-full max-w-[620px] space-y-2 sm:space-y-3">
             {Object.entries(grouped).map(([row, rowSeats]) => (
-              <div key={row} className="flex min-w-max items-center gap-2">
-                <span className="w-6 text-sm font-semibold text-muted">{row}</span>
+              <div
+                key={row}
+                className="grid items-center gap-1.5 sm:gap-2"
+                style={{ gridTemplateColumns: `1.25rem repeat(${rowSeats.length}, minmax(0, 1fr))` }}
+              >
+                <span className="text-xs font-semibold text-muted sm:text-sm">{row}</span>
                 {rowSeats.map((seat) => {
                   const active = selected.includes(seat.seatId);
                   const disabled = seat.status !== "AVAILABLE";
@@ -113,7 +124,7 @@ export function SeatPicker({ showtimeId, seats, demoMode = false }: Props) {
                       onClick={() => toggle(seat)}
                       disabled={disabled}
                       title={`${seat.rowLabel}${seat.seatNumber} ${seat.status}${seat.lockedUntil ? ` until ${new Date(seat.lockedUntil).toLocaleTimeString()}` : ""}`}
-                      className={`grid size-10 place-items-center rounded-md border text-xs font-semibold ${
+                      className={`grid aspect-square w-full min-w-0 place-items-center rounded-md border text-xs font-semibold ${
                         active
                           ? "border-accent bg-accent text-background"
                           : disabled
@@ -121,7 +132,7 @@ export function SeatPicker({ showtimeId, seats, demoMode = false }: Props) {
                             : "border-line bg-background text-foreground hover:border-accent"
                       }`}
                     >
-                      <Armchair size={17} aria-hidden />
+                      <Armchair className="size-[clamp(0.875rem,4vw,1.1rem)]" aria-hidden />
                     </button>
                   );
                 })}
@@ -129,7 +140,7 @@ export function SeatPicker({ showtimeId, seats, demoMode = false }: Props) {
             ))}
           </div>
         </div>
-        <div className="mt-6 flex flex-wrap gap-3 text-xs text-muted">
+        <div className="mt-6 flex flex-wrap gap-x-4 gap-y-2 text-xs text-muted">
           <span className="flex items-center gap-2">
             <span className="size-3 rounded-sm border border-line bg-background" /> Available
           </span>
@@ -142,7 +153,7 @@ export function SeatPicker({ showtimeId, seats, demoMode = false }: Props) {
         </div>
       </div>
 
-      <aside className="rounded-lg border border-line bg-panel p-5">
+      <aside className="min-w-0 rounded-lg border border-line bg-panel p-5">
         <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-accent">
           <LockKeyhole size={17} aria-hidden />
           Temporary lock

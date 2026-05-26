@@ -4,11 +4,31 @@ export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhos
 const ACCESS_KEY = "cinema.accessToken";
 const REFRESH_KEY = "cinema.refreshToken";
 const USER_KEY = "cinema.user";
+let cachedUserRaw: string | null | undefined;
+let cachedUser: User | null = null;
 
 export function getStoredUser(): User | null {
   if (typeof window === "undefined") return null;
   const raw = window.localStorage.getItem(USER_KEY);
-  return raw ? (JSON.parse(raw) as User) : null;
+  if (raw === cachedUserRaw) return cachedUser;
+
+  cachedUserRaw = raw;
+  try {
+    cachedUser = raw ? (JSON.parse(raw) as User) : null;
+  } catch {
+    cachedUser = null;
+  }
+  return cachedUser;
+}
+
+export function subscribeToAuthChanges(listener: () => void) {
+  if (typeof window === "undefined") return () => undefined;
+  window.addEventListener("cinema-auth", listener);
+  window.addEventListener("storage", listener);
+  return () => {
+    window.removeEventListener("cinema-auth", listener);
+    window.removeEventListener("storage", listener);
+  };
 }
 
 export function getAccessToken(): string | null {

@@ -12,21 +12,43 @@ Cinema booking system using a modular monolith backend and a Next.js frontend. I
 
 ## Local Run
 
-For normal daily startup, use the lightweight command:
+Cross-platform Docker commands for Linux, macOS, CI runners, and Windows shells with `make` installed:
 
-```powershell
-.\start-light.ps1
+```bash
+make up
 ```
 
 This reuses existing Docker images and avoids rebuilding everything every time.
 
 Only rebuild after dependency, Dockerfile, or major source changes:
 
-```powershell
-.\rebuild-once.ps1
+```bash
+make rebuild
 ```
 
 Stop everything:
+
+```bash
+make down
+```
+
+Other useful commands:
+
+```bash
+make ps
+make logs
+make verify
+```
+
+Windows PowerShell helpers are also available:
+
+```powershell
+.\start-light.ps1
+```
+
+```powershell
+.\rebuild-once.ps1
+```
 
 ```powershell
 .\stop.ps1

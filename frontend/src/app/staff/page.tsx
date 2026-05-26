@@ -1,12 +1,12 @@
 "use client";
 
 import { Search, ShieldCheck, TicketCheck } from "lucide-react";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useState, useSyncExternalStore } from "react";
 
 import { AppShell } from "@/components/AppShell";
 import { StatusBadge } from "@/components/StatusBadge";
-import { apiFetch, getStoredUser } from "@/lib/api";
-import type { BookingSeat, Showtime, User } from "@/lib/types";
+import { apiFetch, getStoredUser, subscribeToAuthChanges } from "@/lib/api";
+import type { BookingSeat, Showtime } from "@/lib/types";
 
 type StaffValidation = {
   ticketCode: string;
@@ -32,7 +32,7 @@ type StaffBooking = {
 };
 
 export default function StaffPage() {
-  const [user, setUser] = useState<User | null>(null);
+  const user = useSyncExternalStore(subscribeToAuthChanges, getStoredUser, () => null);
   const [showtimes, setShowtimes] = useState<Showtime[]>([]);
   const [ticketCode, setTicketCode] = useState("");
   const [bookingCode, setBookingCode] = useState("");
@@ -41,10 +41,6 @@ export default function StaffPage() {
   const [error, setError] = useState("");
 
   const canUseStaff = user?.role === "ADMIN" || user?.role === "STAFF";
-
-  useEffect(() => {
-    setUser(getStoredUser());
-  }, []);
 
   useEffect(() => {
     if (!canUseStaff) return;
@@ -83,7 +79,7 @@ export default function StaffPage() {
       <section className="mx-auto max-w-7xl px-4 py-10 sm:px-6">
         <p className="font-mono text-xs uppercase text-accent">Staff console</p>
         <h1 className="mt-2 text-4xl font-semibold">Ticket validation</h1>
-        <p className="mt-3 max-w-2xl text-muted">Scan or paste a QR token, search a booking code, and keep today's sessions visible.</p>
+        <p className="mt-3 max-w-2xl text-muted">Scan or paste a QR token, search a booking code, and keep today&apos;s sessions visible.</p>
 
         {!canUseStaff && (
           <div className="mt-6 rounded-lg border border-danger/40 bg-danger/10 p-5 text-danger">
@@ -158,7 +154,7 @@ export default function StaffPage() {
               <section className="rounded-lg border border-line bg-panel p-5">
                 <div className="flex flex-wrap items-end justify-between gap-3">
                   <div>
-                    <p className="font-mono text-xs uppercase text-accent">Today's sessions</p>
+                    <p className="font-mono text-xs uppercase text-accent">Today&apos;s sessions</p>
                     <h2 className="mt-2 text-2xl font-semibold">Session table</h2>
                   </div>
                   <p className="text-sm text-muted">{showtimes.length} sessions</p>
