@@ -40,6 +40,8 @@ make logs
 make verify
 ```
 
+`make verify` runs the backend test suite, frontend lint, and frontend production build. Backend tests include a Testcontainers integration test for the booking, payment, ticket issuing, and staff validation flow.
+
 Windows PowerShell helpers are also available:
 
 ```powershell
@@ -69,6 +71,13 @@ npm.cmd run dev
 ```
 
 Open `http://localhost:3000`.
+
+## CI
+
+GitHub Actions runs on every push to `main` and every pull request:
+
+- Backend: Java 21, Maven tests, PostgreSQL and Redis through Testcontainers.
+- Frontend: Node.js 20, `npm ci`, lint, and production build.
 
 ## Seeded Accounts
 
