@@ -39,7 +39,7 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/auth/**").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/payments/mock-callback").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/payments/mock-callback").authenticated()
                         .requestMatchers(HttpMethod.GET, "/movies/**", "/cinemas/**", "/showtimes/**").permitAll()
                         .anyRequest().authenticated())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)

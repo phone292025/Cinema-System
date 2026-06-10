@@ -80,13 +80,14 @@ public class PaymentService {
     }
 
     @Transactional
-    public PaymentResponse mockCallback(MockCallbackRequest request) {
+    public PaymentResponse mockCallback(AuthUser user, MockCallbackRequest request) {
         Payment payment = payments.findByPaymentReference(request.paymentReference())
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Payment reference not found."));
-        auditLogs.system("PAYMENT_CALLBACK_RECEIVED", "Payment", payment.getId().toString(), request.status().name());
         Booking booking = bookings.lockById(payment.getBooking().getId())
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Booking not found."));
+        assertOwnsOrAdmin(user, booking);
         payment.setBooking(booking);
+        auditLogs.system("PAYMENT_CALLBACK_RECEIVED", "Payment", payment.getId().toString(), request.status().name());
 
         if (payment.getStatus() == PaymentStatus.SUCCEEDED) {
             return PaymentResponse.from(payment);
@@ -139,7 +140,7 @@ public class PaymentService {
     }
 
     private void assertOwnsOrAdmin(AuthUser authUser, Booking booking) {
-        if (!booking.getUser().getId().equals(authUser.id()) && authUser.role() != UserRole.ADMIN && authUser.role() != UserRole.STAFF) {
+        if (!booking.getUser().getId().equals(authUser.id()) && authUser.role() != UserRole.ADMIN) {
             throw new ApiException(HttpStatus.FORBIDDEN, "Booking does not belong to this user.");
         }
     }

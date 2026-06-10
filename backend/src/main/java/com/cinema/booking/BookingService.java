@@ -221,7 +221,7 @@ public class BookingService {
     }
 
     private void assertOwnsOrAdmin(AuthUser authUser, Booking booking) {
-        if (!booking.getUser().getId().equals(authUser.id()) && authUser.role() != UserRole.ADMIN && authUser.role() != UserRole.STAFF) {
+        if (!booking.getUser().getId().equals(authUser.id()) && authUser.role() != UserRole.ADMIN) {
             throw new ApiException(HttpStatus.FORBIDDEN, "Booking does not belong to this user.");
         }
     }

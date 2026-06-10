@@ -31,7 +31,7 @@ public class PaymentController {
 
     @PostMapping("/mock-callback")
     @Idempotent
-    PaymentResponse mockCallback(@Valid @RequestBody MockCallbackRequest request) {
-        return paymentService.mockCallback(request);
+    PaymentResponse mockCallback(@AuthenticationPrincipal AuthUser user, @Valid @RequestBody MockCallbackRequest request) {
+        return paymentService.mockCallback(user, request);
     }
 }

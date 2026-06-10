@@ -99,7 +99,7 @@ export default function StaffPage() {
                 <input
                   value={ticketCode}
                   onChange={(event) => setTicketCode(event.target.value)}
-                  placeholder="Paste QR token or ticket code"
+                  placeholder="Paste QR token"
                   className="mt-5 w-full rounded-md border border-line bg-background px-3 py-3 outline-none focus:border-accent"
                 />
                 <button type="submit" className="mt-4 flex w-full items-center justify-center gap-2 rounded-md bg-accent px-4 py-3 font-semibold text-background">

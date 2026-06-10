@@ -4,7 +4,7 @@ spring:
   datasource:
     url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/cinema}
     username: ${DATABASE_USERNAME:cinema}
-    password: ${DATABASE_PASSWORD:cinema}
+    password: ${DATABASE_PASSWORD:}
   flyway:
     enabled: true
   jpa:
@@ -19,6 +19,7 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
 
 server:
   port: ${PORT:8080}
@@ -27,7 +28,7 @@ server:
 
 app:
   jwt:
-    secret: ${JWT_SECRET:dev-only-change-me-dev-only-change-me-dev-only-change-me}
+    secret: ${JWT_SECRET}
     access-token-minutes: ${JWT_ACCESS_TOKEN_MINUTES:30}
     refresh-token-days: ${JWT_REFRESH_TOKEN_DAYS:14}
   cors:
@@ -36,4 +37,10 @@ app:
     lock-minutes: ${BOOKING_LOCK_MINUTES:5}
     cancel-cutoff-hours: ${BOOKING_CANCEL_CUTOFF_HOURS:2}
   ticket:
-    secret: ${TICKET_SECRET:${JWT_SECRET:dev-only-change-me-dev-only-change-me-dev-only-change-me}}
+    secret: ${TICKET_SECRET}
+  seed:
+    demo-users-enabled: ${DEMO_USERS_ENABLED:false}
+    demo-admin-email: ${DEMO_ADMIN_EMAIL:admin@cinema.test}
+    demo-admin-password: ${DEMO_ADMIN_PASSWORD:}
+    demo-customer-email: ${DEMO_CUSTOMER_EMAIL:customer@cinema.test}
+    demo-customer-password: ${DEMO_CUSTOMER_PASSWORD:}

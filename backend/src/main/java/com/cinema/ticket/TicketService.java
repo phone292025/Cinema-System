@@ -22,6 +22,7 @@ import com.cinema.booking.BookingRepository;
 import com.cinema.booking.BookingStateMachine;
 import com.cinema.booking.BookingStatus;
 import com.cinema.common.ApiException;
+import com.cinema.common.SecretValidator;
 import com.cinema.notification.NotificationService;
 import com.cinema.user.User;
 import com.cinema.user.UserRepository;
@@ -55,7 +56,7 @@ public class TicketService {
         this.stateMachine = stateMachine;
         this.notifications = notifications;
         this.auditLogs = auditLogs;
-        this.ticketSecret = ticketSecret;
+        this.ticketSecret = SecretValidator.requireStrongSecret(ticketSecret, "app.ticket.secret");
     }
 
     @Transactional
@@ -66,22 +67,24 @@ public class TicketService {
     @Transactional(readOnly = true)
     public Ticket getForBooking(AuthUser user, UUID bookingId) {
         Booking booking = bookings.findById(bookingId).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Booking not found."));
-        assertOwnsOrStaff(user, booking);
+        assertOwnsOrAdmin(user, booking);
         return tickets.findByBookingId(bookingId).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Ticket is not ready yet."));
     }
 
     @Transactional(readOnly = true)
     public byte[] qrPng(AuthUser user, UUID ticketId) {
         Ticket ticket = tickets.findById(ticketId).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Ticket not found."));
-        assertOwnsOrStaff(user, ticket.getBooking());
+        assertOwnsOrAdmin(user, ticket.getBooking());
         return qr(rawToken(ticket.getBooking().getId(), ticket.getTicketCode()));
     }
 
     @Transactional
     public Ticket validate(AuthUser staff, String scannedCode, String qrToken) {
         String rawToken = qrToken == null || qrToken.isBlank() ? scannedCode : qrToken;
+        if (rawToken == null || rawToken.isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "QR token is required.");
+        }
         Ticket ticket = tickets.findWithLockByQrTokenHash(hash(rawToken))
-                .or(() -> tickets.findWithLockByTicketCode(scannedCode))
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Ticket not found."));
         if (ticket.getStatus() == TicketStatus.USED) {
             throw new ApiException(HttpStatus.CONFLICT, "Ticket was already validated.");
@@ -129,8 +132,8 @@ public class TicketService {
         return saved;
     }
 
-    private void assertOwnsOrStaff(AuthUser authUser, Booking booking) {
-        if (!booking.getUser().getId().equals(authUser.id()) && authUser.role() != UserRole.ADMIN && authUser.role() != UserRole.STAFF) {
+    private void assertOwnsOrAdmin(AuthUser authUser, Booking booking) {
+        if (!booking.getUser().getId().equals(authUser.id()) && authUser.role() != UserRole.ADMIN) {
             throw new ApiException(HttpStatus.FORBIDDEN, "Ticket does not belong to this user.");
         }
     }

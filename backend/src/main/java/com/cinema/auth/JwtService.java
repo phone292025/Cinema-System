@@ -13,6 +13,7 @@ import java.util.UUID;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 
+import com.cinema.common.SecretValidator;
 import com.cinema.user.UserRole;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -33,7 +34,7 @@ public class JwtService {
             @Value("${app.jwt.secret}") String secret,
             @Value("${app.jwt.access-token-minutes}") long accessTokenMinutes) {
         this.objectMapper = objectMapper;
-        this.secret = secret.getBytes(StandardCharsets.UTF_8);
+        this.secret = SecretValidator.requireStrongSecret(secret, "app.jwt.secret").getBytes(StandardCharsets.UTF_8);
         this.accessTokenSeconds = accessTokenMinutes * 60;
     }
 

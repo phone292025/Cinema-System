@@ -27,6 +27,7 @@ import com.cinema.user.User;
 import com.cinema.user.UserRepository;
 import com.cinema.user.UserRole;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -36,13 +37,16 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 public class DataSeeder {
     @Bean
     CommandLineRunner seed(UserRepository users, MovieRepository movies, CinemaRepository cinemas, HallRepository halls,
-            SeatRepository seats, ShowtimeRepository showtimes, ShowtimeSeatRepository showtimeSeats, PasswordEncoder encoder) {
+            SeatRepository seats, ShowtimeRepository showtimes, ShowtimeSeatRepository showtimeSeats, PasswordEncoder encoder,
+            @Value("${app.seed.demo-users-enabled:false}") boolean demoUsersEnabled,
+            @Value("${app.seed.demo-admin-email:admin@cinema.test}") String demoAdminEmail,
+            @Value("${app.seed.demo-admin-password:}") String demoAdminPassword,
+            @Value("${app.seed.demo-customer-email:customer@cinema.test}") String demoCustomerEmail,
+            @Value("${app.seed.demo-customer-password:}") String demoCustomerPassword) {
         return args -> {
-            if (!users.existsByEmailIgnoreCase("admin@cinema.test")) {
-                users.save(user("Admin", "admin@cinema.test", "admin12345", UserRole.ADMIN, encoder));
-            }
-            if (!users.existsByEmailIgnoreCase("customer@cinema.test")) {
-                users.save(user("Demo Customer", "customer@cinema.test", "customer12345", UserRole.CUSTOMER, encoder));
+            if (demoUsersEnabled) {
+                seedDemoUser(users, encoder, "Admin", demoAdminEmail, demoAdminPassword, UserRole.ADMIN);
+                seedDemoUser(users, encoder, "Demo Customer", demoCustomerEmail, demoCustomerPassword, UserRole.CUSTOMER);
             }
 
             List<SeedMovie> catalog = topRatedCatalog();
@@ -225,6 +229,15 @@ public class DataSeeder {
         user.setPasswordHash(encoder.encode(password));
         user.setRole(role);
         return user;
+    }
+
+    private void seedDemoUser(UserRepository users, PasswordEncoder encoder, String name, String email, String password, UserRole role) {
+        if (password == null || password.isBlank() || password.length() < 12) {
+            throw new IllegalStateException("Demo user password for " + email + " must be at least 12 characters.");
+        }
+        if (!users.existsByEmailIgnoreCase(email)) {
+            users.save(user(name, email, password, role, encoder));
+        }
     }
 
     private ShowtimeSeat showtimeSeat(Showtime showtime, Seat seat) {

@@ -1,6 +1,7 @@
 package com.cinema.payment;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -12,12 +13,14 @@ import java.util.Optional;
 import java.util.UUID;
 
 import com.cinema.audit.AuditLogService;
+import com.cinema.auth.AuthUser;
 import com.cinema.booking.Booking;
 import com.cinema.booking.BookingRepository;
 import com.cinema.booking.BookingService;
 import com.cinema.booking.BookingStateMachine;
 import com.cinema.booking.BookingStatus;
 import com.cinema.cinema.Cinema;
+import com.cinema.common.ApiException;
 import com.cinema.hall.Hall;
 import com.cinema.movie.Movie;
 import com.cinema.outbox.OutboxService;
@@ -49,9 +52,38 @@ class PaymentServiceTest {
         when(bookings.lockById(booking.getId())).thenReturn(Optional.of(booking));
 
         PaymentService service = new PaymentService(payments, bookings, bookingService, new BookingStateMachine(), outbox, auditLogs);
-        PaymentDtos.PaymentResponse response = service.mockCallback(new PaymentDtos.MockCallbackRequest("PAY-123", PaymentStatus.SUCCEEDED));
+        PaymentDtos.PaymentResponse response = service.mockCallback(AuthUser.from(booking.getUser()),
+                new PaymentDtos.MockCallbackRequest("PAY-123", PaymentStatus.SUCCEEDED));
 
         assertThat(response.status()).isEqualTo(PaymentStatus.SUCCEEDED);
+        verify(bookingService, never()).markSeatsBooked(booking);
+    }
+
+    @Test
+    void shouldRejectMockCallbackForAnotherUsersBooking() {
+        PaymentRepository payments = mock(PaymentRepository.class);
+        BookingRepository bookings = mock(BookingRepository.class);
+        BookingService bookingService = mock(BookingService.class);
+        OutboxService outbox = mock(OutboxService.class);
+        AuditLogService auditLogs = mock(AuditLogService.class);
+        Booking booking = paidBooking();
+        Payment payment = new Payment();
+        payment.setId(UUID.randomUUID());
+        payment.setBooking(booking);
+        payment.setPaymentReference("PAY-123");
+        payment.setAmount(new BigDecimal("42.00"));
+        payment.setMethod("MOCK");
+        payment.setStatus(PaymentStatus.SUCCEEDED);
+
+        when(payments.findByPaymentReference("PAY-123")).thenReturn(Optional.of(payment));
+        when(bookings.lockById(booking.getId())).thenReturn(Optional.of(booking));
+
+        PaymentService service = new PaymentService(payments, bookings, bookingService, new BookingStateMachine(), outbox, auditLogs);
+        AuthUser attacker = new AuthUser(UUID.randomUUID(), "Other", "other@example.com", UserRole.CUSTOMER);
+
+        assertThatThrownBy(() -> service.mockCallback(attacker, new PaymentDtos.MockCallbackRequest("PAY-123", PaymentStatus.SUCCEEDED)))
+                .isInstanceOf(ApiException.class)
+                .hasMessage("Booking does not belong to this user.");
         verify(bookingService, never()).markSeatsBooked(booking);
     }
 

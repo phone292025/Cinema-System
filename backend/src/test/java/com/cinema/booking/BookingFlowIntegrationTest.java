@@ -2,9 +2,14 @@ package com.cinema.booking;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Comparator;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.UUID;
+
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 
 import com.cinema.auth.AuthUser;
 import com.cinema.outbox.OutboxWorker;
@@ -37,6 +42,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 @SpringBootTest(properties = {
         "app.jwt.secret=integration-test-jwt-secret-integration-test-jwt-secret",
         "app.ticket.secret=integration-test-ticket-secret-integration-test-ticket-secret",
+        "app.seed.demo-users-enabled=true",
+        "app.seed.demo-admin-password=integration-admin-password",
+        "app.seed.demo-customer-password=integration-customer-password",
         "spring.task.scheduling.enabled=false"
 })
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
@@ -100,10 +108,11 @@ class BookingFlowIntegrationTest {
 
         BookingDtos.BookingResponse locked = bookings.lockSeats(AuthUser.from(customer), new BookingDtos.LockSeatsRequest(showtime.getId(), seatIds));
         PaymentDtos.PaymentResponse initiated = payments.initiate(AuthUser.from(customer), new PaymentDtos.InitiatePaymentRequest(locked.id(), "MOCK"));
-        PaymentDtos.PaymentResponse paid = payments.mockCallback(new PaymentDtos.MockCallbackRequest(initiated.paymentReference(), PaymentStatus.SUCCEEDED));
+        PaymentDtos.PaymentResponse paid = payments.mockCallback(AuthUser.from(customer),
+                new PaymentDtos.MockCallbackRequest(initiated.paymentReference(), PaymentStatus.SUCCEEDED));
         outboxWorker.processOutboxEvents();
         Ticket issued = tickets.findByBookingId(locked.id()).orElseThrow();
-        Ticket validated = ticketService.validate(AuthUser.from(admin), issued.getTicketCode(), null);
+        Ticket validated = ticketService.validate(AuthUser.from(admin), issued.getTicketCode(), rawTicketToken(issued));
         BookingDtos.BookingResponse completed = bookings.get(AuthUser.from(customer), locked.id());
 
         assertThat(locked.status()).isEqualTo(BookingStatus.LOCKED);
@@ -114,5 +123,15 @@ class BookingFlowIntegrationTest {
                 .filter(seat -> seatIds.contains(seat.getSeat().getId()))
                 .map(ShowtimeSeat::getStatus))
                 .containsOnly(ShowtimeSeatStatus.BOOKED);
+    }
+
+    private String rawTicketToken(Ticket ticket) {
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec("integration-test-ticket-secret-integration-test-ticket-secret".getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            return HexFormat.of().formatHex(mac.doFinal((ticket.getBooking().getId() + ":" + ticket.getTicketCode()).getBytes(StandardCharsets.UTF_8)));
+        } catch (Exception ex) {
+            throw new IllegalStateException("Unable to create test QR token", ex);
+        }
     }
 }
