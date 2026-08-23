@@ -43,7 +43,11 @@ jobs:
 
       - name: Install dependencies
         working-directory: frontend
-        run: npm ci
+        env:
+          NPM_CONFIG_FETCH_RETRIES: 5
+          NPM_CONFIG_FETCH_RETRY_MINTIMEOUT: 1000
+          NPM_CONFIG_FETCH_RETRY_MAXTIMEOUT: 60000
+        run: npm ci --no-audit --no-fund
 
       - name: Run lint
         working-directory: frontend
