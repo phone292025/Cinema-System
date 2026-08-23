@@ -46,6 +46,12 @@ public class ShowtimeSeat {
 
     private Instant lockedUntil;
 
+    /**
+     * Booking that currently holds this seat. Guards seat release so an expiring
+     * booking can never free a seat that a newer booking has taken over.
+     */
+    private UUID lockedByBookingId;
+
     @Version
     private Long version;
 }

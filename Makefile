@@ -1,4 +1,4 @@
-.PHONY: up rebuild down restart ps logs backend-logs frontend-logs test-backend lint-frontend build-frontend verify
+.PHONY: up rebuild down restart ps logs backend-logs frontend-logs test-backend lint-frontend test-frontend build-frontend verify
 
 up:
 	docker compose up -d --no-build
@@ -29,7 +29,10 @@ test-backend:
 lint-frontend:
 	cd frontend && npm run lint
 
+test-frontend:
+	cd frontend && npm test
+
 build-frontend:
 	cd frontend && npm run build
 
-verify: test-backend lint-frontend build-frontend
+verify: test-backend lint-frontend test-frontend build-frontend

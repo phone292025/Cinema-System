@@ -4,6 +4,7 @@ import java.time.Duration;
 import java.time.Instant;
 
 import com.cinema.common.ApiException;
+import com.cinema.common.SchedulerGuard;
 import com.cinema.user.User;
 import com.cinema.user.UserRepository;
 
@@ -16,10 +17,12 @@ import org.springframework.transaction.annotation.Transactional;
 public class IdempotencyService {
     private final IdempotencyKeyRepository keys;
     private final UserRepository users;
+    private final SchedulerGuard schedulerGuard;
 
-    public IdempotencyService(IdempotencyKeyRepository keys, UserRepository users) {
+    public IdempotencyService(IdempotencyKeyRepository keys, UserRepository users, SchedulerGuard schedulerGuard) {
         this.keys = keys;
         this.users = users;
+        this.schedulerGuard = schedulerGuard;
     }
 
     @Transactional
@@ -46,6 +49,10 @@ public class IdempotencyService {
     }
 
     @Scheduled(cron = "0 */30 * * * *")
+    public void cleanupAbandonedKeysJob() {
+        schedulerGuard.runExclusively("idempotency-cleanup", this::cleanupAbandonedKeys);
+    }
+
     @Transactional
     public void cleanupAbandonedKeys() {
         keys.deleteByCompletedAtIsNullAndCreatedAtBefore(Instant.now().minus(Duration.ofHours(1)));

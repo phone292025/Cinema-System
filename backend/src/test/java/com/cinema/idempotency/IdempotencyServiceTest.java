@@ -11,6 +11,7 @@ import java.time.Instant;
 import java.util.Optional;
 
 import com.cinema.common.ApiException;
+import com.cinema.common.SchedulerGuard;
 import com.cinema.user.UserRepository;
 
 import org.junit.jupiter.api.Test;
@@ -19,7 +20,7 @@ class IdempotencyServiceTest {
     @Test
     void createsPendingRecordForFirstRequest() {
         IdempotencyKeyRepository keys = mock(IdempotencyKeyRepository.class);
-        IdempotencyService service = new IdempotencyService(keys, mock(UserRepository.class));
+        IdempotencyService service = new IdempotencyService(keys, mock(UserRepository.class), mock(SchedulerGuard.class));
 
         when(keys.findByActorKeyAndKeyValue("user-1", "key-1")).thenReturn(Optional.empty());
 
@@ -32,7 +33,7 @@ class IdempotencyServiceTest {
     @Test
     void returnsCachedResponseForSameCompletedRequest() {
         IdempotencyKeyRepository keys = mock(IdempotencyKeyRepository.class);
-        IdempotencyService service = new IdempotencyService(keys, mock(UserRepository.class));
+        IdempotencyService service = new IdempotencyService(keys, mock(UserRepository.class), mock(SchedulerGuard.class));
         IdempotencyKey existing = new IdempotencyKey();
         existing.setRequestHash("hash-a");
         existing.setStatusCode(200);
@@ -50,7 +51,7 @@ class IdempotencyServiceTest {
     @Test
     void rejectsSameKeyWithDifferentRequestHash() {
         IdempotencyKeyRepository keys = mock(IdempotencyKeyRepository.class);
-        IdempotencyService service = new IdempotencyService(keys, mock(UserRepository.class));
+        IdempotencyService service = new IdempotencyService(keys, mock(UserRepository.class), mock(SchedulerGuard.class));
         IdempotencyKey existing = new IdempotencyKey();
         existing.setRequestHash("hash-a");
         existing.setCompletedAt(Instant.now());

@@ -22,7 +22,7 @@ export default function BookingsPage() {
   async function cancel(id: string) {
     setError("");
     try {
-      await apiFetch<Booking>(`/bookings/${id}/cancel`, { method: "POST" });
+      await apiFetch<Booking>(`/bookings/${id}/cancel`, { method: "POST", idempotencyScope: `booking-cancel:${id}` });
       load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not cancel booking.");

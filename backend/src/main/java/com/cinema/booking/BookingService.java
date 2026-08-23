@@ -13,6 +13,7 @@ import com.cinema.auth.AuthUser;
 import com.cinema.booking.BookingDtos.BookingResponse;
 import com.cinema.booking.BookingDtos.LockSeatsRequest;
 import com.cinema.common.ApiException;
+import com.cinema.common.SchedulerGuard;
 import com.cinema.showtime.SeatEvent;
 import com.cinema.showtime.SeatEventPublisher;
 import com.cinema.showtime.SeatEventType;
@@ -45,12 +46,13 @@ public class BookingService {
     private final SeatEventPublisher seatEvents;
     private final AuditLogService auditLogs;
     private final TicketRepository tickets;
+    private final SchedulerGuard schedulerGuard;
     private final Duration lockDuration;
     private final long cancelCutoffHours;
 
     public BookingService(BookingRepository bookings, ShowtimeRepository showtimes, ShowtimeSeatRepository showtimeSeats,
             UserRepository users, SeatLockService seatLocks, BookingPriceCalculator priceCalculator, BookingStateMachine stateMachine,
-            SeatEventPublisher seatEvents, AuditLogService auditLogs, TicketRepository tickets,
+            SeatEventPublisher seatEvents, AuditLogService auditLogs, TicketRepository tickets, SchedulerGuard schedulerGuard,
             @Value("${app.booking.lock-minutes}") long lockMinutes,
             @Value("${app.booking.cancel-cutoff-hours}") long cancelCutoffHours) {
         this.bookings = bookings;
@@ -63,6 +65,7 @@ public class BookingService {
         this.seatEvents = seatEvents;
         this.auditLogs = auditLogs;
         this.tickets = tickets;
+        this.schedulerGuard = schedulerGuard;
         this.lockDuration = Duration.ofMinutes(lockMinutes);
         this.cancelCutoffHours = cancelCutoffHours;
     }
@@ -113,6 +116,7 @@ public class BookingService {
         seats.forEach(seat -> {
             seat.setStatus(ShowtimeSeatStatus.LOCKED);
             seat.setLockedUntil(booking.getExpiresAt());
+            seat.setLockedByBookingId(booking.getId());
             seatEvents.publish(SeatEvent.from(SeatEventType.SEAT_LOCKED, seat));
         });
         auditLogs.record(authUser, "SEAT_LOCKED", "Booking", booking.getId().toString(), null,
@@ -156,6 +160,10 @@ public class BookingService {
     }
 
     @Scheduled(fixedDelay = 60_000)
+    public void expireStaleBookingsJob() {
+        schedulerGuard.runExclusively("booking-expiry", this::expireStaleBookings);
+    }
+
     @Transactional
     public void expireStaleBookings() {
         Instant now = Instant.now();
@@ -169,27 +177,40 @@ public class BookingService {
     }
 
     @Scheduled(fixedDelay = 60_000)
+    public void releaseExpiredSeatLocksJob() {
+        schedulerGuard.runExclusively("seat-lock-expiry", this::releaseExpiredSeatLocks);
+    }
+
     @Transactional
     public void releaseExpiredSeatLocks() {
         cleanupExpiredLocks();
     }
 
+    /**
+     * Frees the seats this booking holds. Seats taken over by another booking are
+     * left untouched: an expiring booking must never release a seat that somebody
+     * else has already locked or paid for.
+     */
     @Transactional
     public void releaseSeats(Booking booking) {
         List<UUID> seatIds = booking.getItems().stream().map(item -> item.getSeat().getId()).toList();
         booking.getItems().forEach(item -> showtimeSeats.lockOne(booking.getShowtime().getId(), item.getSeat().getId()).ifPresent(showtimeSeat -> {
+            if (!holds(showtimeSeat, booking)) {
+                return;
+            }
             if (showtimeSeat.getStatus() == ShowtimeSeatStatus.LOCKED || showtimeSeat.getStatus() == ShowtimeSeatStatus.BOOKED) {
-                showtimeSeat.setStatus(ShowtimeSeatStatus.AVAILABLE);
-                showtimeSeat.setLockedUntil(null);
-                seatEvents.publish(SeatEvent.from(SeatEventType.SEAT_RELEASED, showtimeSeat));
+                markAvailable(showtimeSeat, SeatEventType.SEAT_RELEASED);
             }
         }));
-        seatLocks.release(booking.getShowtime().getId(), seatIds);
+        seatLocks.release(booking.getShowtime().getId(), seatIds, booking.getId());
     }
 
     @Transactional
     public void markSeatsBooked(Booking booking) {
         booking.getItems().forEach(item -> showtimeSeats.lockOne(booking.getShowtime().getId(), item.getSeat().getId()).ifPresent(showtimeSeat -> {
+            if (!holds(showtimeSeat, booking)) {
+                throw new ApiException(HttpStatus.CONFLICT, "Seat is now held by another booking.");
+            }
             if (showtimeSeat.getStatus() == ShowtimeSeatStatus.BOOKED) {
                 return;
             }
@@ -198,25 +219,38 @@ public class BookingService {
             }
             showtimeSeat.setStatus(ShowtimeSeatStatus.BOOKED);
             showtimeSeat.setLockedUntil(null);
+            showtimeSeat.setLockedByBookingId(booking.getId());
             seatEvents.publish(SeatEvent.from(SeatEventType.SEAT_BOOKED, showtimeSeat));
         }));
-        seatLocks.release(booking.getShowtime().getId(), booking.getItems().stream().map(item -> item.getSeat().getId()).toList());
+        seatLocks.release(booking.getShowtime().getId(),
+                booking.getItems().stream().map(item -> item.getSeat().getId()).toList(), booking.getId());
+    }
+
+    /**
+     * A seat belongs to a booking when it recorded that booking as the holder.
+     * Rows written before ownership tracking existed have no holder and are
+     * treated as unowned, which is safe because nobody else can claim them either.
+     */
+    private boolean holds(ShowtimeSeat seat, Booking booking) {
+        return seat.getLockedByBookingId() == null || seat.getLockedByBookingId().equals(booking.getId());
+    }
+
+    private void markAvailable(ShowtimeSeat seat, SeatEventType eventType) {
+        seat.setStatus(ShowtimeSeatStatus.AVAILABLE);
+        seat.setLockedUntil(null);
+        seat.setLockedByBookingId(null);
+        seatEvents.publish(SeatEvent.from(eventType, seat));
     }
 
     private void cleanupExpiredLocks() {
         Instant now = Instant.now();
-        showtimeSeats.findByStatusAndLockedUntilBefore(ShowtimeSeatStatus.LOCKED, now).forEach(seat -> {
-            seat.setStatus(ShowtimeSeatStatus.AVAILABLE);
-            seat.setLockedUntil(null);
-            seatEvents.publish(SeatEvent.from(SeatEventType.SEAT_EXPIRED, seat));
-        });
+        showtimeSeats.findByStatusAndLockedUntilBefore(ShowtimeSeatStatus.LOCKED, now)
+                .forEach(seat -> markAvailable(seat, SeatEventType.SEAT_EXPIRED));
     }
 
     private void releaseIfDbLockExpired(ShowtimeSeat seat, Instant now) {
         if (seat.getStatus() == ShowtimeSeatStatus.LOCKED && seat.getLockedUntil() != null && seat.getLockedUntil().isBefore(now)) {
-            seat.setStatus(ShowtimeSeatStatus.AVAILABLE);
-            seat.setLockedUntil(null);
-            seatEvents.publish(SeatEvent.from(SeatEventType.SEAT_EXPIRED, seat));
+            markAvailable(seat, SeatEventType.SEAT_EXPIRED);
         }
     }
 

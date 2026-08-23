@@ -4,6 +4,7 @@ export const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhos
 const ACCESS_KEY = "cinema.accessToken";
 const REFRESH_KEY = "cinema.refreshToken";
 const USER_KEY = "cinema.user";
+const IDEMPOTENCY_PREFIX = "cinema.idempotency.";
 let cachedUserRaw: string | null | undefined;
 let cachedUser: User | null = null;
 
@@ -55,28 +56,27 @@ export function clearAuth() {
   window.dispatchEvent(new Event("cinema-auth"));
 }
 
-export async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const headers = new Headers(options.headers);
-  headers.set("Content-Type", "application/json");
-  const token = getAccessToken();
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-  ensureIdempotencyHeader(headers, options.method);
+/**
+ * `idempotencyScope` names the logical operation a request belongs to, for example
+ * `payment-initiate:<bookingId>`. Every attempt at that operation reuses one key,
+ * so a retry after a dropped connection is recognised by the server as the same
+ * request instead of being charged twice. The key is dropped once the operation
+ * finally succeeds, so the next real operation starts fresh.
+ */
+export type ApiOptions = RequestInit & { idempotencyScope?: string };
 
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers,
-  });
+type InternalOptions = ApiOptions & { skipJsonContentType?: boolean };
+
+const AUTH_PATHS = ["/auth/login", "/auth/register", "/auth/refresh", "/auth/logout"];
+let inFlightRefresh: Promise<boolean> | null = null;
+
+export async function apiFetch<T>(path: string, options: ApiOptions = {}): Promise<T> {
+  const response = await sendWithAuth(path, options);
 
   if (!response.ok) {
-    let message = `Request failed with ${response.status}`;
-    try {
-      const body = (await response.json()) as { message?: string };
-      message = body.message ?? message;
-    } catch {
-      // Keep the status-based message.
-    }
-    throw new Error(message);
+    throw new Error(await errorMessage(response));
   }
+  clearIdempotencyKey(options.idempotencyScope);
 
   if (response.status === 204) {
     return undefined as T;
@@ -86,37 +86,114 @@ export async function apiFetch<T>(path: string, options: RequestInit = {}): Prom
   return (text ? JSON.parse(text) : undefined) as T;
 }
 
-export async function apiBlob(path: string, options: RequestInit = {}): Promise<Blob> {
-  const headers = new Headers(options.headers);
-  const token = getAccessToken();
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-  ensureIdempotencyHeader(headers, options.method);
-
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers,
-  });
+export async function apiBlob(path: string, options: ApiOptions = {}): Promise<Blob> {
+  const response = await sendWithAuth(path, { ...options, skipJsonContentType: true });
 
   if (!response.ok) {
-    let message = `Request failed with ${response.status}`;
-    try {
-      const body = (await response.json()) as { message?: string };
-      message = body.message ?? message;
-    } catch {
-      // Keep the status-based message.
-    }
-    throw new Error(message);
+    throw new Error(await errorMessage(response));
   }
+  clearIdempotencyKey(options.idempotencyScope);
 
   return response.blob();
 }
 
-function ensureIdempotencyHeader(headers: Headers, method = "GET") {
+/**
+ * Sends the request and, if the access token has expired, refreshes it once and
+ * replays the request. Without this the user is thrown out mid-checkout as soon as
+ * the 30 minute access token lapses, even though a valid refresh token is on hand.
+ */
+async function sendWithAuth(path: string, options: InternalOptions): Promise<Response> {
+  const response = await send(path, options);
+  if (response.status !== 401 || AUTH_PATHS.includes(path) || !getRefreshToken()) {
+    return response;
+  }
+
+  const refreshed = await refreshAccessToken();
+  if (!refreshed) {
+    return response;
+  }
+  return send(path, options);
+}
+
+async function send(path: string, options: InternalOptions): Promise<Response> {
+  const headers = new Headers(options.headers);
+  if (!options.skipJsonContentType) {
+    headers.set("Content-Type", "application/json");
+  }
+  const token = getAccessToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  ensureIdempotencyHeader(headers, options.method, options.idempotencyScope);
+
+  return fetch(`${API_BASE}${path}`, { ...options, headers });
+}
+
+/**
+ * Only one refresh runs at a time: parallel requests that all hit a 401 share the
+ * single in-flight refresh instead of racing and invalidating each other's tokens.
+ */
+async function refreshAccessToken(): Promise<boolean> {
+  if (inFlightRefresh) return inFlightRefresh;
+
+  inFlightRefresh = (async () => {
+    const refreshToken = getRefreshToken();
+    if (!refreshToken) return false;
+    try {
+      const response = await fetch(`${API_BASE}/auth/refresh`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ refreshToken }),
+      });
+      if (!response.ok) {
+        clearAuth();
+        return false;
+      }
+      storeAuth((await response.json()) as AuthResponse);
+      return true;
+    } catch {
+      // A network failure is not proof that the session is gone; keep it and let
+      // the original request surface the error.
+      return false;
+    } finally {
+      inFlightRefresh = null;
+    }
+  })();
+
+  return inFlightRefresh;
+}
+
+async function errorMessage(response: Response): Promise<string> {
+  try {
+    const body = (await response.json()) as { message?: string };
+    return body.message ?? `Request failed with ${response.status}`;
+  } catch {
+    return `Request failed with ${response.status}`;
+  }
+}
+
+function ensureIdempotencyHeader(headers: Headers, method = "GET", scope?: string) {
   const normalized = method.toUpperCase();
   if (!["POST", "PUT", "PATCH", "DELETE"].includes(normalized) || headers.has("Idempotency-Key")) {
     return;
   }
-  headers.set("Idempotency-Key", createRequestId());
+  headers.set("Idempotency-Key", scope ? idempotencyKeyFor(scope) : createRequestId());
+}
+
+/** Returns the stable key for a logical operation, creating it on first use. */
+export function idempotencyKeyFor(scope: string): string {
+  const storageKey = `${IDEMPOTENCY_PREFIX}${scope}`;
+  if (typeof window === "undefined") return createRequestId();
+
+  const existing = window.sessionStorage.getItem(storageKey);
+  if (existing) return existing;
+
+  const key = createRequestId();
+  window.sessionStorage.setItem(storageKey, key);
+  return key;
+}
+
+export function clearIdempotencyKey(scope?: string) {
+  if (!scope || typeof window === "undefined") return;
+  window.sessionStorage.removeItem(`${IDEMPOTENCY_PREFIX}${scope}`);
 }
 
 function createRequestId() {

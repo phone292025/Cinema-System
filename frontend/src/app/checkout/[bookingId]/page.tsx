@@ -28,10 +28,12 @@ export default function CheckoutPage() {
       const payment = await apiFetch<Payment>("/payments/initiate", {
         method: "POST",
         body: JSON.stringify({ bookingId: params.bookingId, method: "MOCK" }),
+        idempotencyScope: `payment-initiate:${params.bookingId}`,
       });
       await apiFetch<Payment>("/payments/mock-callback", {
         method: "POST",
         body: JSON.stringify({ paymentReference: payment.paymentReference, status: "SUCCEEDED" }),
+        idempotencyScope: `payment-callback:${payment.paymentReference}`,
       });
       router.push(`/confirmation/${params.bookingId}`);
     } catch (err) {

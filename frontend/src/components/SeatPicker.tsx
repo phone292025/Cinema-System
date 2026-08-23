@@ -90,6 +90,8 @@ export function SeatPicker({ showtimeId, seats, demoMode = false }: Props) {
       const booking = await apiFetch<Booking>("/bookings/lock-seats", {
         method: "POST",
         body: JSON.stringify({ showtimeId, seatIds: selected }),
+        // Retrying the same selection must not create a second booking.
+        idempotencyScope: `lock-seats:${showtimeId}:${[...selected].sort().join(",")}`,
       });
       router.push(`/checkout/${booking.id}`);
     } catch (err) {
