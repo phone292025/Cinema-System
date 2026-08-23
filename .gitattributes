@@ -1,0 +1,27 @@
+# Normalise line endings so Windows checkouts stop rewriting every file to CRLF
+# in the index. Text is stored as LF in the repository and checked out with the
+# platform's native endings.
+* text=auto
+
+# Files that must keep LF wherever they are checked out.
+*.sh text eol=lf
+mvnw text eol=lf
+Makefile text eol=lf
+Dockerfile text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Windows-only helpers are easier to read with CRLF.
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Never touch binaries.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.jar binary
