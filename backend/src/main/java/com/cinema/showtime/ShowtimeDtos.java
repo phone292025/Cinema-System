@@ -23,10 +23,6 @@ public final class ShowtimeDtos {
             @NotNull ShowtimeStatus status) {
     }
 
-    /**
-     * {@code soldSeats} and {@code totalSeats} are only populated for admin listings;
-     * customer-facing responses leave them null rather than pay for the aggregate.
-     */
     public record ShowtimeResponse(UUID id, UUID movieId, String movieTitle, UUID cinemaId, String cinemaName, UUID hallId,
             String hallName, Instant startTime, Instant endTime, BigDecimal basePrice, ShowtimeStatus status,
             Long soldSeats, Long totalSeats) {

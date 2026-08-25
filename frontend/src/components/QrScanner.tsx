@@ -12,19 +12,12 @@ function getDetectorConstructor(): BarcodeDetectorConstructor | null {
   return (window as unknown as { BarcodeDetector?: BarcodeDetectorConstructor }).BarcodeDetector ?? null;
 }
 
-/**
- * Camera scanning for the door. Uses the browser's built-in barcode detector, so
- * there is no extra library to ship; where it is missing the caller still has the
- * text field, which also covers USB scanners that type and press Enter.
- */
 export function QrScanner({ onScan }: { onScan: (value: string) => void }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [active, setActive] = useState(false);
   const [error, setError] = useState("");
 
-  // Read straight from the browser rather than mirroring it into state; on the
-  // server there is nothing to detect with, so report null and decide on hydration.
   const supported = useSyncExternalStore(
     () => () => {},
     () => getDetectorConstructor() !== null && !!navigator.mediaDevices,
@@ -69,7 +62,6 @@ export function QrScanner({ onScan }: { onScan: (value: string) => void }) {
             return;
           }
         } catch {
-          // A single failed frame is not worth reporting; try the next one.
         }
         requestAnimationFrame(() => void tick());
       };

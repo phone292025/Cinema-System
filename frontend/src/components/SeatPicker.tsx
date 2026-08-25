@@ -93,7 +93,6 @@ export function SeatPicker({ showtimeId, seats, demoMode = false }: Props) {
       const booking = await apiFetch<Booking>("/bookings/lock-seats", {
         method: "POST",
         body: JSON.stringify({ showtimeId, seatIds: selected }),
-        // Retrying the same selection must not create a second booking.
         idempotencyScope: `lock-seats:${showtimeId}:${[...selected].sort().join(",")}`,
       });
       router.push(`/checkout/${booking.id}`);
@@ -113,8 +112,6 @@ export function SeatPicker({ showtimeId, seats, demoMode = false }: Props) {
         <div className="pb-2">
           <div className="mx-auto w-full max-w-[620px] space-y-2 sm:space-y-3">
             {Object.entries(grouped).map(([row, rowSeats]) => {
-              // A centre aisle, the way a real auditorium is laid out, so people can
-              // orient themselves instead of counting identical squares.
               const aisleAfter = Math.ceil(rowSeats.length / 2);
               return (
                 <div

@@ -38,7 +38,6 @@ class SeatLockServiceTest {
         List<String> acquired = service.lock(showtimeId, List.of(seatA, seatB), bookingId, Duration.ofMinutes(5));
 
         assertThat(acquired).isEmpty();
-        // The rollback must compare-and-delete, never a blind delete of the key.
         verify(redis).execute(any(RedisScript.class), eq(List.of(service.key(showtimeId, seatA))), eq(bookingId.toString()));
         verify(redis, never()).delete(anyList());
     }

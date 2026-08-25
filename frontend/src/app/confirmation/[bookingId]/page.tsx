@@ -41,8 +41,6 @@ export default function ConfirmationPage() {
         setTicketState("ready");
       } catch {
         if (cancelled) return;
-        // Tickets are issued by a background worker a moment after payment, so keep
-        // asking rather than showing an empty page.
         if (attempts < 8) {
           window.setTimeout(loadTicket, 1200);
         } else {

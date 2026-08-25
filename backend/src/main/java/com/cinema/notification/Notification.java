@@ -41,7 +41,6 @@ public class Notification {
 
     private Instant readAt;
 
-    /** Booking this update refers to, when there is one. */
     private UUID bookingId;
     private Instant createdAt = Instant.now();
 }

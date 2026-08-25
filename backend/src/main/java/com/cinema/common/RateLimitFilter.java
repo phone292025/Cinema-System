@@ -24,15 +24,6 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
-/**
- * Fixed-window request limiter for the endpoints that are cheap to call and
- * expensive to serve: the credential endpoints (unlimited password guessing also
- * means unlimited BCrypt work) and the payment endpoints.
- * <p>
- * Counters live in Redis so the limit holds across replicas. If Redis is
- * unavailable the filter fails open — losing the limiter is bad, refusing every
- * login because a cache is down is worse.
- */
 @Component
 public class RateLimitFilter extends OncePerRequestFilter {
     private static final Logger log = LoggerFactory.getLogger(RateLimitFilter.class);
@@ -106,10 +97,6 @@ public class RateLimitFilter extends OncePerRequestFilter {
         }
     }
 
-    /**
-     * Forwarded headers are only honoured when the deployment is known to sit behind
-     * a trusted proxy; otherwise any client could spoof its way past the limit.
-     */
     private String clientIp(HttpServletRequest request) {
         if (trustForwardedFor) {
             String forwarded = request.getHeader("X-Forwarded-For");

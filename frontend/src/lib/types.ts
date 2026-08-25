@@ -45,7 +45,6 @@ export type Showtime = {
   endTime: string;
   basePrice: number;
   status: "SCHEDULED" | "CANCELLED" | "SOLD_OUT";
-  /** Only present on admin listings. */
   soldSeats?: number | null;
   totalSeats?: number | null;
 };

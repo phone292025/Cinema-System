@@ -1,4 +1,3 @@
-/** Screening times are scheduled to the minute; seconds are noise. */
 export function formatShowtime(value: string) {
   return new Date(value).toLocaleString(undefined, {
     weekday: "short",

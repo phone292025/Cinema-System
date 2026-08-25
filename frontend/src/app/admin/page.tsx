@@ -184,9 +184,6 @@ export default function AdminPage() {
         setShowtimes(showtimeResponse);
         setAuditLogs(auditResponse);
 
-        // Read the current branch from the setter rather than closing over it: as a
-        // dependency it re-created `load`, which re-ran the effect and fetched
-        // everything twice on each visit.
         setHallForm((current) => {
           const selectedCinemaId = current.cinemaId || cinemaResponse[0]?.id || "";
           if (selectedCinemaId) loadHalls(selectedCinemaId);
@@ -230,8 +227,6 @@ export default function AdminPage() {
     });
   }
 
-  // The catalog was add-only, so a typo in a title could never be corrected from
-  // the UI. The same form now edits an existing film when one is selected.
   async function saveMovie(event: FormEvent) {
     event.preventDefault();
     const editing = editingMovieId;
@@ -515,8 +510,6 @@ function DashboardWorkspace({
   showtimes: Showtime[];
   averageTicket: number;
 }) {
-  // The checklist answers "is anything missing", so it only lists what is not set
-  // up yet. The counts themselves already live in the metric tiles above.
   const setupItems = [
     { label: "Movies", complete: movies.length > 0, helper: "Add at least one film to the catalog" },
     { label: "Cinemas", complete: cinemas.length > 0, helper: "Create a branch to host screenings" },
@@ -524,7 +517,6 @@ function DashboardWorkspace({
     { label: "Showtimes", complete: showtimes.length > 0, helper: "Schedule sessions so seats go on sale" },
   ];
   const outstanding = setupItems.filter((item) => !item.complete);
-  // Read the clock once on mount rather than on every render.
   const [now] = useState(() => Date.now());
   const upcoming = showtimes
     .filter((showtime) => new Date(showtime.startTime).getTime() >= now)
@@ -584,7 +576,6 @@ function DashboardWorkspace({
   );
 }
 
-/** Seats sold against capacity — the number a sales screen actually needs. */
 function Occupancy({ sold, total }: { sold?: number | null; total?: number | null }) {
   if (!total) return null;
   const soldSeats = sold ?? 0;
@@ -618,8 +609,6 @@ function TicketSalesWorkspace({
   paidBookings: number;
   averageTicket: number;
 }) {
-  // Sessions that are actually selling belong at the top; a list in schedule order
-  // buries the ones worth looking at.
   const busiestSessions = showtimes
     .slice()
     .sort((a, b) => Number(b.soldSeats ?? 0) - Number(a.soldSeats ?? 0))
@@ -1200,10 +1189,6 @@ function Select({
   );
 }
 
-/**
- * A list that can be searched and grows on demand. The schedule alone runs to
- * hundreds of rows, which is unusable as one long scroll.
- */
 function FilterableInventoryPanel<T>({
   title,
   eyebrow,

@@ -109,8 +109,6 @@ public class DataSeeder {
                     showtime.setMovie(movie);
                     showtime.setHall(hall);
                     long movieOffset = Math.min(index, 9);
-                    // Real cinemas schedule on the hour, so round the seeded times instead of
-                    // inheriting whatever minute the seeder happened to run at.
                     showtime.setStartTime(Instant.now().truncatedTo(ChronoUnit.HOURS).plus(i * 3L + movieOffset, ChronoUnit.HOURS));
                     showtime.setEndTime(showtime.getStartTime().plus(movie.getDurationMinutes(), ChronoUnit.MINUTES));
                     showtime.setBasePrice(basePriceFor(movie));

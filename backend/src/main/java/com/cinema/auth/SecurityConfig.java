@@ -49,17 +49,11 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/payments/mock-callback").authenticated()
                         .requestMatchers(HttpMethod.GET, "/movies/**", "/cinemas/**", "/showtimes/**").permitAll()
                         .anyRequest().authenticated())
-                // After CORS so a 429 still carries the CORS headers the browser needs.
                 .addFilterAfter(rateLimitFilter, CorsFilter.class)
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
                 .build();
     }
 
-    /**
-     * The filters below are Spring beans, so Boot would also add them to the plain
-     * servlet chain. Registering them only through the security chain keeps each one
-     * running exactly once, in a known position.
-     */
     @Bean
     FilterRegistrationBean<RateLimitFilter> rateLimitFilterRegistration(RateLimitFilter filter) {
         return disableAutoRegistration(filter);

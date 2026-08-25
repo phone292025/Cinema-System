@@ -56,13 +56,6 @@ export function clearAuth() {
   window.dispatchEvent(new Event("cinema-auth"));
 }
 
-/**
- * `idempotencyScope` names the logical operation a request belongs to, for example
- * `payment-initiate:<bookingId>`. Every attempt at that operation reuses one key,
- * so a retry after a dropped connection is recognised by the server as the same
- * request instead of being charged twice. The key is dropped once the operation
- * finally succeeds, so the next real operation starts fresh.
- */
 export type ApiOptions = RequestInit & { idempotencyScope?: string };
 
 type InternalOptions = ApiOptions & { skipJsonContentType?: boolean };
@@ -97,11 +90,6 @@ export async function apiBlob(path: string, options: ApiOptions = {}): Promise<B
   return response.blob();
 }
 
-/**
- * Sends the request and, if the access token has expired, refreshes it once and
- * replays the request. Without this the user is thrown out mid-checkout as soon as
- * the 30 minute access token lapses, even though a valid refresh token is on hand.
- */
 async function sendWithAuth(path: string, options: InternalOptions): Promise<Response> {
   const response = await send(path, options);
   if (response.status !== 401 || AUTH_PATHS.includes(path) || !getRefreshToken()) {
@@ -127,10 +115,6 @@ async function send(path: string, options: InternalOptions): Promise<Response> {
   return fetch(`${API_BASE}${path}`, { ...options, headers });
 }
 
-/**
- * Only one refresh runs at a time: parallel requests that all hit a 401 share the
- * single in-flight refresh instead of racing and invalidating each other's tokens.
- */
 async function refreshAccessToken(): Promise<boolean> {
   if (inFlightRefresh) return inFlightRefresh;
 
@@ -150,8 +134,6 @@ async function refreshAccessToken(): Promise<boolean> {
       storeAuth((await response.json()) as AuthResponse);
       return true;
     } catch {
-      // A network failure is not proof that the session is gone; keep it and let
-      // the original request surface the error.
       return false;
     } finally {
       inFlightRefresh = null;
@@ -178,7 +160,6 @@ function ensureIdempotencyHeader(headers: Headers, method = "GET", scope?: strin
   headers.set("Idempotency-Key", scope ? idempotencyKeyFor(scope) : createRequestId());
 }
 
-/** Returns the stable key for a logical operation, creating it on first use. */
 export function idempotencyKeyFor(scope: string): string {
   const storageKey = `${IDEMPOTENCY_PREFIX}${scope}`;
   if (typeof window === "undefined") return createRequestId();

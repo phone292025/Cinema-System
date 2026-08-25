@@ -3,20 +3,12 @@
 import { AlarmClock } from "lucide-react";
 import { useEffect, useState } from "react";
 
-/** Seconds left on a seat hold, or null when there is no deadline. */
 function secondsLeft(expiresAt?: string) {
   if (!expiresAt) return null;
   return Math.max(0, Math.round((new Date(expiresAt).getTime() - Date.now()) / 1000));
 }
 
-/**
- * The whole booking model rests on a five minute hold, so the clock has to be on
- * screen. Without it people discover the deadline only when their seats vanish.
- */
 export function HoldCountdown({ expiresAt, onExpire }: { expiresAt?: string; onExpire?: () => void }) {
-  // Seeded once from the deadline and then advanced only by the timer, so the
-  // effect never writes state synchronously. Callers key this component by
-  // `expiresAt` so a late-arriving booking seeds it correctly.
   const [remaining, setRemaining] = useState<number | null>(() => secondsLeft(expiresAt));
 
   useEffect(() => {

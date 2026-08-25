@@ -24,12 +24,8 @@ export default function BookingsPage() {
 
   useEffect(load, []);
 
-  // Read once on mount: splitting the list by a clock that ticks during render
-  // would make the output depend on when React happened to re-render.
   const [now] = useState(() => Date.now());
 
-  // Past screenings cannot be cancelled and rarely need attention, so they sit
-  // below rather than competing with what is still coming up.
   const { upcoming, past } = useMemo(() => {
     const sorted = bookings.slice().sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
     return {

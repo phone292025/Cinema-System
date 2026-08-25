@@ -100,7 +100,6 @@ class SeatLockConcurrencyIntegrationTest {
                         bookings.lockSeats(AuthUser.from(customer), new BookingDtos.LockSeatsRequest(showtime.getId(), List.of(seatId)));
                         succeeded.incrementAndGet();
                     } catch (Exception expectedForLosers) {
-                        // Losing requests are rejected; only the winner is counted.
                     }
                 });
             }
@@ -124,8 +123,6 @@ class SeatLockConcurrencyIntegrationTest {
         BookingDtos.BookingResponse first = bookings.lockSeats(AuthUser.from(customer),
                 new BookingDtos.LockSeatsRequest(showtime.getId(), List.of(seatId)));
 
-        // Simulate the first hold timing out: the Redis TTL lapses and the sweeper
-        // returns the seat to the pool, but the booking row is still awaiting expiry.
         expire(first.id(), seatId, showtime.getId());
 
         BookingDtos.BookingResponse second = bookings.lockSeats(AuthUser.from(customer),

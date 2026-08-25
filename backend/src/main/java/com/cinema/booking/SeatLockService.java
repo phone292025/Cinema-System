@@ -10,18 +10,6 @@ import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.data.redis.core.script.RedisScript;
 import org.springframework.stereotype.Service;
 
-/**
- * Fast cross-instance hint about which seats are being held right now.
- * <p>
- * Redis is deliberately <strong>not</strong> the source of truth: the authoritative
- * lock is the {@code SELECT ... FOR UPDATE} row lock plus the status of the
- * {@code showtime_seats} row. Redis only shortens the window in which two users
- * see the same seat as free, so a Redis outage degrades responsiveness rather
- * than correctness.
- * <p>
- * Every delete is a compare-and-delete against the owning booking id, so a booking
- * can only ever release a lock it still holds.
- */
 @Service
 public class SeatLockService {
     private static final RedisScript<Long> RELEASE_IF_OWNED = new DefaultRedisScript<>(
@@ -49,7 +37,6 @@ public class SeatLockService {
         return Boolean.TRUE.equals(redis.hasKey(key(showtimeId, seatId)));
     }
 
-    /** True only when some <em>other</em> booking holds the seat. */
     public boolean isLockedByOther(UUID showtimeId, UUID seatId, UUID bookingId) {
         String holder = redis.opsForValue().get(key(showtimeId, seatId));
         return holder != null && !holder.equals(bookingId.toString());
@@ -69,11 +56,6 @@ public class SeatLockService {
         return acquired;
     }
 
-    /**
-     * Releases the seats only if {@code bookingId} still owns them.
-     *
-     * @return how many locks were actually released
-     */
     public long release(UUID showtimeId, List<UUID> seatIds, UUID bookingId) {
         return releaseKeys(seatIds.stream().map(seatId -> key(showtimeId, seatId)).toList(), bookingId);
     }

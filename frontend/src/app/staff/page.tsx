@@ -68,8 +68,6 @@ export default function StaffPage() {
     await runValidation(ticketCode);
   }
 
-  // A scan should validate immediately; making staff press a button after pointing
-  // the camera defeats the point.
   const handleScan = useCallback(
     (value: string) => {
       setTicketCode(value);
@@ -192,9 +190,9 @@ export default function StaffPage() {
                   <p className="text-sm text-muted">{showtimes.length} sessions</p>
                 </div>
 
-                <div className="mt-5 overflow-x-auto cinema-scrollbar-none">
-                  <table className="w-full min-w-[720px] border-separate border-spacing-0 text-left">
-                    <thead>
+                <div className="mt-5 max-h-[34rem] overflow-auto cinema-scrollbar-none">
+                  <table className="w-full min-w-[560px] border-separate border-spacing-0 text-left">
+                    <thead className="sticky top-0 z-10 bg-panel">
                       <tr className="text-xs uppercase text-muted">
                         <th className="border-b border-line px-4 py-3 font-mono">Movie</th>
                         <th className="border-b border-line px-4 py-3 font-mono">Cinema</th>
@@ -204,11 +202,11 @@ export default function StaffPage() {
                     </thead>
                     <tbody>
                       {showtimes.map((showtime) => (
-                        <tr key={showtime.id} className="align-top">
-                          <td className="border-b border-line/70 px-4 py-4 font-semibold">{showtime.movieTitle}</td>
-                          <td className="border-b border-line/70 px-4 py-4 text-muted">{showtime.cinemaName}</td>
-                          <td className="border-b border-line/70 px-4 py-4 text-muted">{showtime.hallName}</td>
-                          <td className="border-b border-line/70 px-4 py-4 font-mono text-accent">
+                        <tr key={showtime.id}>
+                          <td className="whitespace-nowrap border-b border-line/70 px-4 py-3 font-semibold">{showtime.movieTitle}</td>
+                          <td className="whitespace-nowrap border-b border-line/70 px-4 py-3 text-muted">{showtime.cinemaName}</td>
+                          <td className="whitespace-nowrap border-b border-line/70 px-4 py-3 text-muted">{showtime.hallName}</td>
+                          <td className="whitespace-nowrap border-b border-line/70 px-4 py-3 font-mono text-accent">
                             {formatTimeOnly(showtime.startTime)}
                           </td>
                         </tr>

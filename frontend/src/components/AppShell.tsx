@@ -38,8 +38,6 @@ type MobileNavItem = {
   roles?: string[];
 };
 
-// Staff and admin get their workspace in the bar too; without it those roles had
-// no way to reach /staff or /admin on a phone.
 const mobileNav: MobileNavItem[] = [
   { href: "/", label: "Home", icon: Clapperboard },
   { href: "/movies", label: "Movies", icon: Film },
@@ -74,7 +72,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const unreadNotificationCount = user && unreadNotifications?.userId === user.id ? unreadNotifications.count : 0;
   const isStaff = user?.role === "ADMIN" || user?.role === "STAFF";
 
-  // Five is the most that stays tappable on a 375px screen.
   const mobileNavItems = mobileNav
     .filter(
       (item) =>

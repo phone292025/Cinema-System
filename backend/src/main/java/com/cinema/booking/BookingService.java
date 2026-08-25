@@ -186,11 +186,6 @@ public class BookingService {
         cleanupExpiredLocks();
     }
 
-    /**
-     * Frees the seats this booking holds. Seats taken over by another booking are
-     * left untouched: an expiring booking must never release a seat that somebody
-     * else has already locked or paid for.
-     */
     @Transactional
     public void releaseSeats(Booking booking) {
         List<UUID> seatIds = booking.getItems().stream().map(item -> item.getSeat().getId()).toList();
@@ -226,11 +221,6 @@ public class BookingService {
                 booking.getItems().stream().map(item -> item.getSeat().getId()).toList(), booking.getId());
     }
 
-    /**
-     * A seat belongs to a booking when it recorded that booking as the holder.
-     * Rows written before ownership tracking existed have no holder and are
-     * treated as unowned, which is safe because nobody else can claim them either.
-     */
     private boolean holds(ShowtimeSeat seat, Booking booking) {
         return seat.getLockedByBookingId() == null || seat.getLockedByBookingId().equals(booking.getId());
     }
