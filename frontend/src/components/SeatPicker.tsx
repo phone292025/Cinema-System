@@ -1,7 +1,7 @@
 "use client";
 
-import { Armchair, Loader2, LockKeyhole, TicketCheck } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { Loader2, LockKeyhole, TicketCheck } from "lucide-react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { API_BASE, apiFetch, getAccessToken } from "@/lib/api";
@@ -64,9 +64,12 @@ export function SeatPicker({ showtimeId, seats, demoMode = false }: Props) {
     }, {});
   }, [liveSeats]);
 
-  const total = liveSeats
-    .filter((seat) => selected.includes(seat.seatId))
-    .reduce((sum, seat) => sum + Number(seat.price), 0);
+  const selectedSeats = liveSeats.filter((seat) => selected.includes(seat.seatId));
+  const total = selectedSeats.reduce((sum, seat) => sum + Number(seat.price), 0);
+  const selectedLabels = selectedSeats
+    .slice()
+    .sort((a, b) => a.rowLabel.localeCompare(b.rowLabel) || a.seatNumber - b.seatNumber)
+    .map((seat) => `${seat.rowLabel}${seat.seatNumber}`);
 
   function toggle(seat: SeatAvailability) {
     if (seat.status !== "AVAILABLE") return;
@@ -78,7 +81,7 @@ export function SeatPicker({ showtimeId, seats, demoMode = false }: Props) {
   async function lockSeats() {
     setError("");
     if (demoMode) {
-      setError("This chair map is a local preview. Start the Spring Boot API to lock seats and continue to payment.");
+      setError("This is a local preview of the seat map. Connect the booking service to hold seats and continue to payment.");
       return;
     }
     if (!getAccessToken()) {
@@ -109,65 +112,82 @@ export function SeatPicker({ showtimeId, seats, demoMode = false }: Props) {
         </div>
         <div className="pb-2">
           <div className="mx-auto w-full max-w-[620px] space-y-2 sm:space-y-3">
-            {Object.entries(grouped).map(([row, rowSeats]) => (
-              <div
-                key={row}
-                className="grid items-center gap-1.5 sm:gap-2"
-                style={{ gridTemplateColumns: `1.25rem repeat(${rowSeats.length}, minmax(0, 1fr))` }}
-              >
-                <span className="text-xs font-semibold text-muted sm:text-sm">{row}</span>
-                {rowSeats.map((seat) => {
-                  const active = selected.includes(seat.seatId);
-                  const disabled = seat.status !== "AVAILABLE";
-                  return (
-                    <button
-                      key={seat.seatId}
-                      type="button"
-                      onClick={() => toggle(seat)}
-                      disabled={disabled}
-                      title={`${seat.rowLabel}${seat.seatNumber} ${seat.status}${seat.lockedUntil ? ` until ${new Date(seat.lockedUntil).toLocaleTimeString()}` : ""}`}
-                      className={`grid aspect-square w-full min-w-0 place-items-center rounded-md border text-xs font-semibold ${
-                        active
-                          ? "border-accent bg-accent text-background"
-                          : disabled
-                            ? "border-line bg-background text-muted opacity-45"
-                            : "border-line bg-background text-foreground hover:border-accent"
-                      }`}
-                    >
-                      <Armchair className="size-[clamp(0.875rem,4vw,1.1rem)]" aria-hidden />
-                    </button>
-                  );
-                })}
-              </div>
-            ))}
+            {Object.entries(grouped).map(([row, rowSeats]) => {
+              // A centre aisle, the way a real auditorium is laid out, so people can
+              // orient themselves instead of counting identical squares.
+              const aisleAfter = Math.ceil(rowSeats.length / 2);
+              return (
+                <div
+                  key={row}
+                  className="grid items-center gap-1.5 sm:gap-2"
+                  style={{
+                    gridTemplateColumns: `1.25rem repeat(${aisleAfter}, minmax(0, 1fr)) 0.6rem repeat(${
+                      rowSeats.length - aisleAfter
+                    }, minmax(0, 1fr))`,
+                  }}
+                >
+                  <span className="text-xs font-semibold text-muted sm:text-sm">{row}</span>
+                  {rowSeats.map((seat, index) => {
+                    const active = selected.includes(seat.seatId);
+                    const disabled = seat.status !== "AVAILABLE";
+                    return (
+                      <Fragment key={seat.seatId}>
+                        {index === aisleAfter && <span aria-hidden />}
+                        <button
+                          type="button"
+                          onClick={() => toggle(seat)}
+                          disabled={disabled}
+                          aria-label={`Seat ${seat.rowLabel}${seat.seatNumber}, ${
+                            disabled ? "unavailable" : `$${Number(seat.price).toFixed(2)}`
+                          }`}
+                          aria-pressed={active}
+                          title={`${seat.rowLabel}${seat.seatNumber} · $${Number(seat.price).toFixed(2)}${
+                            disabled ? " · taken" : ""
+                          }`}
+                          className={`grid aspect-square w-full min-w-0 place-items-center rounded-md border text-[0.65rem] font-semibold leading-none sm:text-xs ${
+                            active
+                              ? "border-accent bg-accent text-background"
+                              : disabled
+                                ? "border-line bg-background text-muted opacity-45"
+                                : "border-line bg-background text-foreground hover:border-accent"
+                          }`}
+                        >
+                          {seat.seatNumber}
+                        </button>
+                      </Fragment>
+                    );
+                  })}
+                </div>
+              );
+            })}
           </div>
         </div>
-        <div className="mt-6 flex flex-wrap gap-x-4 gap-y-2 text-xs text-muted">
+        <div className="mt-6 flex flex-wrap gap-x-5 gap-y-2 text-sm text-muted">
           <span className="flex items-center gap-2">
-            <span className="size-3 rounded-sm border border-line bg-background" /> Available
+            <span className="size-4 rounded-sm border border-line bg-background" /> Available
           </span>
           <span className="flex items-center gap-2">
-            <span className="size-3 rounded-sm bg-accent" /> Selected
+            <span className="size-4 rounded-sm bg-accent" /> Your pick
           </span>
           <span className="flex items-center gap-2">
-            <span className="size-3 rounded-sm bg-muted/35" /> Locked / booked
+            <span className="size-4 rounded-sm bg-muted/35" /> Taken
           </span>
         </div>
       </div>
 
-      <aside className="min-w-0 rounded-lg border border-line bg-panel p-5">
+      <aside className="min-w-0 rounded-lg border border-line bg-panel p-5 max-md:pb-0">
         <div className="mb-4 flex items-center gap-2 text-sm font-semibold text-accent">
           <LockKeyhole size={17} aria-hidden />
-          Temporary lock
+          Your seats are held for 5 minutes
         </div>
         <p className="text-sm leading-6 text-muted">
-          Selected seats are locked for 5 minutes after you continue. The backend rechecks Redis and PostgreSQL before payment.
+          Once you continue, nobody else can take these seats while you pay. If the 5 minutes run out, they go back on sale.
         </p>
         <div className="my-5 border-t border-line" />
         <div className="space-y-2 text-sm">
-          <div className="flex justify-between">
+          <div className="flex justify-between gap-4">
             <span className="text-muted">Seats</span>
-            <span>{selected.length}</span>
+            <span className="text-right font-medium">{selectedLabels.length > 0 ? selectedLabels.join(", ") : "None yet"}</span>
           </div>
           <div className="flex justify-between">
             <span className="text-muted">Total</span>
@@ -179,12 +199,32 @@ export function SeatPicker({ showtimeId, seats, demoMode = false }: Props) {
           type="button"
           disabled={selected.length === 0 || loading}
           onClick={lockSeats}
-          className="mt-5 flex w-full items-center justify-center gap-2 rounded-md bg-accent px-4 py-3 text-sm font-semibold text-background disabled:cursor-not-allowed disabled:opacity-50"
+          className="mt-5 hidden w-full items-center justify-center gap-2 rounded-md bg-accent px-4 py-3 text-sm font-semibold text-background disabled:cursor-not-allowed disabled:opacity-50 md:flex"
         >
           {loading ? <Loader2 className="animate-spin" size={18} aria-hidden /> : <TicketCheck size={18} aria-hidden />}
-          Lock seats
+          Continue to payment
         </button>
       </aside>
+
+      {/* On a phone the summary sits below the fold, so repeat the total and the
+          action just above the tab bar where a thumb already is. */}
+      <div className="fixed inset-x-0 bottom-[4.75rem] z-20 border-t border-line bg-background/95 px-4 py-3 backdrop-blur md:hidden">
+        <div className="flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <p className="truncate text-sm text-muted">{selectedLabels.length > 0 ? selectedLabels.join(", ") : "Pick your seats"}</p>
+            <p className="text-lg font-semibold text-accent">${total.toFixed(2)}</p>
+          </div>
+          <button
+            type="button"
+            disabled={selected.length === 0 || loading}
+            onClick={lockSeats}
+            className="flex shrink-0 items-center justify-center gap-2 rounded-md bg-accent px-5 py-3 text-sm font-semibold text-background disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {loading ? <Loader2 className="animate-spin" size={18} aria-hidden /> : <TicketCheck size={18} aria-hidden />}
+            Continue
+          </button>
+        </div>
+      </div>
     </section>
   );
 }

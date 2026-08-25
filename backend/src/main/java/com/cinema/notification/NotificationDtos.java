@@ -7,10 +7,12 @@ public final class NotificationDtos {
     private NotificationDtos() {
     }
 
-    public record NotificationResponse(UUID id, String type, String title, String message, boolean read, Instant readAt, Instant createdAt) {
+    public record NotificationResponse(UUID id, String type, String title, String message, boolean read, Instant readAt,
+            Instant createdAt, UUID bookingId) {
         public static NotificationResponse from(Notification notification) {
             return new NotificationResponse(notification.getId(), notification.getType(), notification.getTitle(),
-                    notification.getMessage(), notification.getReadAt() != null, notification.getReadAt(), notification.getCreatedAt());
+                    notification.getMessage(), notification.getReadAt() != null, notification.getReadAt(),
+                    notification.getCreatedAt(), notification.getBookingId());
         }
     }
 

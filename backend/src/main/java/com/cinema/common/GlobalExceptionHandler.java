@@ -11,6 +11,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -27,6 +28,11 @@ public class GlobalExceptionHandler {
                 .map(this::format)
                 .collect(Collectors.joining("; "));
         return build(HttpStatus.BAD_REQUEST, message);
+    }
+
+    @ExceptionHandler(MissingServletRequestParameterException.class)
+    ResponseEntity<ErrorResponse> missingParameter(MissingServletRequestParameterException ex) {
+        return build(HttpStatus.BAD_REQUEST, "Required parameter '" + ex.getParameterName() + "' is missing.");
     }
 
     @ExceptionHandler(AccessDeniedException.class)

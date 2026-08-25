@@ -23,12 +23,22 @@ public final class ShowtimeDtos {
             @NotNull ShowtimeStatus status) {
     }
 
+    /**
+     * {@code soldSeats} and {@code totalSeats} are only populated for admin listings;
+     * customer-facing responses leave them null rather than pay for the aggregate.
+     */
     public record ShowtimeResponse(UUID id, UUID movieId, String movieTitle, UUID cinemaId, String cinemaName, UUID hallId,
-            String hallName, Instant startTime, Instant endTime, BigDecimal basePrice, ShowtimeStatus status) {
+            String hallName, Instant startTime, Instant endTime, BigDecimal basePrice, ShowtimeStatus status,
+            Long soldSeats, Long totalSeats) {
         public static ShowtimeResponse from(Showtime showtime) {
+            return from(showtime, null, null);
+        }
+
+        public static ShowtimeResponse from(Showtime showtime, Long soldSeats, Long totalSeats) {
             return new ShowtimeResponse(showtime.getId(), showtime.getMovie().getId(), showtime.getMovie().getTitle(),
                     showtime.getHall().getCinema().getId(), showtime.getHall().getCinema().getName(), showtime.getHall().getId(),
-                    showtime.getHall().getName(), showtime.getStartTime(), showtime.getEndTime(), showtime.getBasePrice(), showtime.getStatus());
+                    showtime.getHall().getName(), showtime.getStartTime(), showtime.getEndTime(), showtime.getBasePrice(),
+                    showtime.getStatus(), soldSeats, totalSeats);
         }
     }
 

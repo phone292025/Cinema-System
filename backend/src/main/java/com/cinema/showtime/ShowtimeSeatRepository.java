@@ -26,4 +26,12 @@ public interface ShowtimeSeatRepository extends JpaRepository<ShowtimeSeat, UUID
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select ss from ShowtimeSeat ss where ss.showtime.id = :showtimeId and ss.seat.id = :seatId")
     Optional<ShowtimeSeat> lockOne(@Param("showtimeId") UUID showtimeId, @Param("seatId") UUID seatId);
+
+    /** One grouped query for every showtime, instead of counting seats session by session. */
+    @Query("""
+            select new com.cinema.showtime.ShowtimeSeatCount(ss.showtime.id, ss.status, count(ss))
+            from ShowtimeSeat ss
+            group by ss.showtime.id, ss.status
+            """)
+    List<ShowtimeSeatCount> countSeatsByShowtimeAndStatus();
 }

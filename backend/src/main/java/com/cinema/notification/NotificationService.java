@@ -23,6 +23,11 @@ public class NotificationService {
 
     @Transactional
     public Notification create(UUID userId, String type, String title, String message) {
+        return create(userId, type, title, message, null);
+    }
+
+    @Transactional
+    public Notification create(UUID userId, String type, String title, String message, UUID bookingId) {
         User user = users.findById(userId).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "User not found."));
         Notification notification = new Notification();
         notification.setUser(user);
@@ -30,6 +35,7 @@ public class NotificationService {
         notification.setTitle(title);
         notification.setMessage(message);
         notification.setRead(false);
+        notification.setBookingId(bookingId);
         return notifications.save(notification);
     }
 

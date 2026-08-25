@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { SeatPicker } from "@/components/SeatPicker";
 import { apiFetch } from "@/lib/api";
+import { formatShowtime } from "@/lib/format";
 import { demoShowtimes, findDemoSeatAvailability } from "@/lib/demo-data";
 import type { SeatAvailabilityResponse, Showtime } from "@/lib/types";
 
@@ -45,7 +46,7 @@ export default function SeatSelectionPage() {
           <h1 className="mt-2 text-3xl font-semibold leading-tight sm:text-4xl">{showtime?.movieTitle ?? "Select seats"}</h1>
           {showtime && (
             <p className="mt-2 text-muted">
-              {showtime.cinemaName}, {showtime.hallName} · {new Date(showtime.startTime).toLocaleString()}
+              {showtime.cinemaName}, {showtime.hallName} · {formatShowtime(showtime.startTime)}
             </p>
           )}
         </div>

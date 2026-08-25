@@ -3,7 +3,9 @@ package com.cinema.showtime;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import com.cinema.common.ApiException;
@@ -41,8 +43,18 @@ public class ShowtimeService {
 
     @Transactional(readOnly = true)
     public List<ShowtimeResponse> findAllForAdmin() {
+        Map<UUID, Long> totals = new HashMap<>();
+        Map<UUID, Long> sold = new HashMap<>();
+        for (ShowtimeSeatCount count : showtimeSeats.countSeatsByShowtimeAndStatus()) {
+            totals.merge(count.showtimeId(), count.total(), Long::sum);
+            if (count.status() == ShowtimeSeatStatus.BOOKED) {
+                sold.merge(count.showtimeId(), count.total(), Long::sum);
+            }
+        }
         return showtimes.findAll().stream()
-                .map(ShowtimeResponse::from)
+                .map(showtime -> ShowtimeResponse.from(showtime,
+                        sold.getOrDefault(showtime.getId(), 0L),
+                        totals.getOrDefault(showtime.getId(), 0L)))
                 .toList();
     }
 
@@ -70,6 +82,13 @@ public class ShowtimeService {
     public ShowtimeResponse create(ShowtimeRequest request) {
         Movie movie = movies.findById(request.movieId()).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Movie not found."));
         Hall hall = halls.findById(request.hallId()).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Hall not found."));
+        if (!request.endTime().isAfter(request.startTime())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "A showtime must end after it starts.");
+        }
+        if (showtimes.existsByHallIdAndStartTimeLessThanAndEndTimeGreaterThan(hall.getId(), request.endTime(), request.startTime())) {
+            throw new ApiException(HttpStatus.CONFLICT,
+                    "%s already has a session running at that time. Pick another slot or hall.".formatted(hall.getName()));
+        }
         Showtime showtime = new Showtime();
         showtime.setMovie(movie);
         showtime.setHall(hall);

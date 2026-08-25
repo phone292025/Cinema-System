@@ -168,3 +168,21 @@ Ports are published on `127.0.0.1` only. If `localhost` resolves to the IPv6 add
 ## Known Limitations
 
 Access and refresh tokens are kept in `localStorage`, which is readable by any script running on the page. Moving the refresh token into an `HttpOnly` cookie would remove that exposure, at the cost of adding CSRF protection and reworking how the frontend authenticates. It is a deliberate follow-up rather than an oversight.
+
+## Booking Experience
+
+- **The hold is visible.** Checkout shows a live `mm:ss` countdown of the five minute seat hold, turns red under a minute, and blocks payment once it lapses.
+- **The ticket arrives on its own.** Tickets are issued by a background worker a moment after payment, so the confirmation page shows a "preparing your ticket" state and swaps in the QR code as soon as it exists. No refresh.
+- **The seat map reads like an auditorium.** Seats show their number, rows are split by a centre aisle, and the chosen seats are named ("B1, B2") before you pay. On a phone the running total and the continue button stay pinned above the tab bar.
+- **Bookings are split into upcoming and past.** Cancelling is a labelled button with a confirmation step, and it is not offered for screenings that have already happened.
+- **Notifications link to the ticket** they are about, and unread ones are visually distinct.
+
+## Staff Console
+
+Tickets are scanned with the camera through the browser's built-in `BarcodeDetector`, so there is no scanning library in the bundle. A scan validates immediately. Where the API is missing the console says so and falls back to the text field, which also accepts a USB barcode scanner (it types the code and presses Enter). Today's sessions sit beside the scanner rather than below it.
+
+## Admin Workspace
+
+The dashboard opens on data rather than a hero, and each figure appears once. Sessions carry real sales: seats sold against capacity, percentage full, and revenue per session, ordered by demand. The catalog can be edited and archived, not just added to, and long lists (the schedule runs to hundreds of rows) are searchable and load in pages.
+
+Scheduling rejects a session that overlaps another in the same hall, so one auditorium can no longer show two films at once.

@@ -7,9 +7,9 @@ import { AppShell } from "@/components/AppShell";
 import { demoMovies, featuredMovie } from "@/lib/demo-data";
 
 const heroFeatures: { title: string; body: string; icon: LucideIcon }[] = [
-  { title: "Seat locking", body: "Redis TTL locks prevent double booking.", icon: LockKeyhole },
-  { title: "Mock payment", body: "Callbacks are idempotent and update bookings once.", icon: Ticket },
-  { title: "Showtime browsing", body: "Pick a movie time and choose seats from a live map.", icon: CalendarDays },
+  { title: "Your seats, held", body: "Nobody else can take them for 5 minutes while you pay.", icon: LockKeyhole },
+  { title: "Never charged twice", body: "Retry safely: a repeated payment is only ever processed once.", icon: Ticket },
+  { title: "Live seat map", body: "See what is still free and pick your row before checkout.", icon: CalendarDays },
 ];
 
 const bookingTools: { title: string; body: string; icon: LucideIcon; href: string }[] = [

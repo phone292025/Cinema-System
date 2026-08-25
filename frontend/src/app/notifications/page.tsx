@@ -1,6 +1,7 @@
 "use client";
 
-import { Bell, CheckCheck } from "lucide-react";
+import { ArrowRight, Bell, CheckCheck } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { AppShell } from "@/components/AppShell";
@@ -48,27 +49,51 @@ export default function NotificationsPage() {
         {error && <p className="mt-5 rounded-md border border-danger/40 bg-danger/10 p-4 text-danger">{error}</p>}
 
         <div className="mt-6 grid gap-3">
-          {notifications.map((item) => (
-            <article key={item.id} className="rounded-lg border border-line bg-panel p-5">
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <p className="font-mono text-xs uppercase text-accent">{item.type.replaceAll("_", " ")}</p>
-                  <h2 className="mt-2 text-xl font-semibold">{item.title}</h2>
-                  <p className="mt-2 text-sm leading-6 text-muted">{item.message}</p>
-                  <p className="mt-3 text-xs text-muted">{new Date(item.createdAt).toLocaleString()}</p>
+          {notifications.map((item) => {
+            const unread = !item.readAt;
+            return (
+              <article
+                key={item.id}
+                className={`rounded-lg border p-5 ${
+                  unread ? "border-accent/40 bg-panel" : "border-line bg-panel/50"
+                }`}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="flex items-center gap-2 font-mono text-xs uppercase text-accent">
+                      {unread && <span className="size-2 rounded-full bg-accent" aria-label="Unread" />}
+                      {item.type.replaceAll("_", " ")}
+                    </p>
+                    <h2 className={`mt-2 text-xl ${unread ? "font-semibold text-foreground" : "font-medium text-muted"}`}>
+                      {item.title}
+                    </h2>
+                    <p className="mt-2 text-sm leading-6 text-muted">{item.message}</p>
+                    <div className="mt-3 flex flex-wrap items-center gap-4">
+                      <p className="text-xs text-muted">{new Date(item.createdAt).toLocaleString()}</p>
+                      {item.bookingId && (
+                        <Link
+                          href={`/confirmation/${item.bookingId}`}
+                          className="flex items-center gap-1.5 text-xs font-semibold text-accent hover:underline"
+                        >
+                          View ticket
+                          <ArrowRight size={13} aria-hidden />
+                        </Link>
+                      )}
+                    </div>
+                  </div>
+                  {unread && (
+                    <button
+                      type="button"
+                      onClick={() => markRead(item.id)}
+                      className="shrink-0 rounded-md border border-line px-3 py-2 text-sm text-muted hover:border-accent hover:text-accent"
+                    >
+                      Mark read
+                    </button>
+                  )}
                 </div>
-                {!item.readAt && (
-                  <button
-                    type="button"
-                    onClick={() => markRead(item.id)}
-                    className="rounded-md bg-accent px-3 py-2 text-sm font-semibold text-background"
-                  >
-                    Read
-                  </button>
-                )}
-              </div>
-            </article>
-          ))}
+              </article>
+            );
+          })}
           {notifications.length === 0 && (
             <div className="rounded-lg border border-line bg-panel p-8 text-center text-muted">
               <Bell className="mx-auto text-accent" size={34} aria-hidden />

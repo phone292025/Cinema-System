@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState, useSyncExternalStore } from "react";
 
+import { SiteFooter } from "@/components/SiteFooter";
 import { apiFetch, getStoredUser, logout, subscribeToAuthChanges } from "@/lib/api";
 import type { NotificationList } from "@/lib/types";
 
@@ -28,11 +29,24 @@ const nav = [
   { href: "/admin", label: "Admin", icon: LayoutDashboard, roles: ["ADMIN"] },
 ];
 
-const mobileNav = [
+type MobileNavItem = {
+  href: string;
+  label: string;
+  icon: typeof Film;
+  authOnly?: boolean;
+  guestOnly?: boolean;
+  roles?: string[];
+};
+
+// Staff and admin get their workspace in the bar too; without it those roles had
+// no way to reach /staff or /admin on a phone.
+const mobileNav: MobileNavItem[] = [
   { href: "/", label: "Home", icon: Clapperboard },
   { href: "/movies", label: "Movies", icon: Film },
   { href: "/bookings", label: "Bookings", icon: Ticket },
   { href: "/notifications", label: "Alerts", icon: Bell, authOnly: true },
+  { href: "/staff", label: "Staff", icon: ShieldCheck, roles: ["STAFF"] },
+  { href: "/admin", label: "Admin", icon: LayoutDashboard, roles: ["ADMIN"] },
   { href: "/login", label: "Profile", icon: UserRound, guestOnly: true },
 ];
 
@@ -58,6 +72,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [user]);
 
   const unreadNotificationCount = user && unreadNotifications?.userId === user.id ? unreadNotifications.count : 0;
+  const isStaff = user?.role === "ADMIN" || user?.role === "STAFF";
+
+  // Five is the most that stays tappable on a 375px screen.
+  const mobileNavItems = mobileNav
+    .filter(
+      (item) =>
+        !(item.authOnly && !user) &&
+        !(item.guestOnly && user) &&
+        (!item.roles || (user !== null && item.roles.includes(user.role))),
+    )
+    .slice(0, 5);
 
   async function handleLogout() {
     await logout();
@@ -76,14 +101,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <span className="truncate">Central Cineplex</span>
           </Link>
           <div className="flex shrink-0 items-center gap-2">
-            <Link
-              href="/staff"
-              className="grid size-10 place-items-center rounded-md border border-white/10 bg-panel/80 text-foreground"
-              aria-label="Staff scanner"
-              title="Staff scanner"
-            >
-              <QrCode size={20} aria-hidden />
-            </Link>
+            {isStaff && (
+              <Link
+                href="/staff"
+                className="grid size-10 place-items-center rounded-md border border-white/10 bg-panel/80 text-foreground"
+                aria-label="Staff scanner"
+                title="Staff scanner"
+              >
+                <QrCode size={20} aria-hidden />
+              </Link>
+            )}
             {user ? (
               <Link
                 href="/notifications"
@@ -176,12 +203,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </header>
-      <main className="overflow-x-hidden pb-24 md:pb-0">{children}</main>
+      <main className="overflow-x-hidden">{children}</main>
+      <div className="pb-24 md:pb-0">
+        <SiteFooter />
+      </div>
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-white/10 bg-[#0b0c0e]/95 px-2 pb-[max(env(safe-area-inset-bottom),0.5rem)] pt-2 backdrop-blur md:hidden">
-        <div className="grid grid-cols-4 gap-1">
-          {mobileNav
-            .filter((item) => !(item.authOnly && !user) && !(item.guestOnly && user))
-            .slice(0, 4)
+        <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${mobileNavItems.length}, minmax(0, 1fr))` }}>
+          {mobileNavItems
             .map((item) => {
               const Icon = item.icon;
               const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);

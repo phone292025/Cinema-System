@@ -10,7 +10,6 @@ import {
   CheckCircle2,
   ChevronRight,
   CircleDollarSign,
-  Clapperboard,
   Film,
   Gauge,
   LayoutDashboard,
@@ -103,6 +102,19 @@ const sections: Array<{
   },
 ];
 
+const emptyMovieForm = {
+  title: "",
+  description: "",
+  durationMinutes: "120",
+  genre: "Drama",
+  language: "English",
+  rating: "PG-13",
+  imdbRating: "",
+  posterUrl: "",
+  releaseDate: "",
+  status: "NOW_SHOWING",
+};
+
 export default function AdminPage() {
   const user = useSyncExternalStore(subscribeToAuthChanges, getStoredUser, () => null);
   const [activeSection, setActiveSection] = useState<AdminSection>("dashboard");
@@ -117,18 +129,8 @@ export default function AdminPage() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const [movieForm, setMovieForm] = useState({
-    title: "",
-    description: "",
-    durationMinutes: "120",
-    genre: "Drama",
-    language: "English",
-    rating: "PG-13",
-    imdbRating: "8.1",
-    posterUrl: "/posters/shawshank-redemption.jpg",
-    releaseDate: "2026-04-24",
-    status: "NOW_SHOWING",
-  });
+  const [movieForm, setMovieForm] = useState(emptyMovieForm);
+  const [editingMovieId, setEditingMovieId] = useState<string | null>(null);
   const [cinemaForm, setCinemaForm] = useState({ name: "", location: "", address: "", city: "" });
   const [hallForm, setHallForm] = useState({
     cinemaId: "",
@@ -182,11 +184,14 @@ export default function AdminPage() {
         setShowtimes(showtimeResponse);
         setAuditLogs(auditResponse);
 
-        const selectedCinemaId = hallForm.cinemaId || cinemaResponse[0]?.id || "";
-        if (selectedCinemaId) {
-          setHallForm((current) => ({ ...current, cinemaId: current.cinemaId || selectedCinemaId }));
-          loadHalls(selectedCinemaId);
-        }
+        // Read the current branch from the setter rather than closing over it: as a
+        // dependency it re-created `load`, which re-ran the effect and fetched
+        // everything twice on each visit.
+        setHallForm((current) => {
+          const selectedCinemaId = current.cinemaId || cinemaResponse[0]?.id || "";
+          if (selectedCinemaId) loadHalls(selectedCinemaId);
+          return current.cinemaId === selectedCinemaId ? current : { ...current, cinemaId: selectedCinemaId };
+        });
 
         if (movieResponse[0]) {
           setShowtimeForm((current) => ({ ...current, movieId: current.movieId || movieResponse[0].id }));
@@ -194,7 +199,7 @@ export default function AdminPage() {
       })
       .catch((err) => setError(err instanceof Error ? err.message : "Dashboard request failed."))
       .finally(() => setIsLoading(false));
-  }, [hallForm.cinemaId, loadHalls, user?.role]);
+  }, [loadHalls, user?.role]);
 
   useEffect(() => {
     if (!canManage) return undefined;
@@ -209,7 +214,6 @@ export default function AdminPage() {
     [showtimes],
   );
 
-  const nextShowtime = sortedShowtimes[0];
   const activeMeta = sections.find((section) => section.key === activeSection) ?? sections[0];
   const revenue = Number(dashboard?.revenue ?? 0);
   const paidBookings = Number(dashboard?.paidBookings ?? 0);
@@ -218,15 +222,64 @@ export default function AdminPage() {
   const seatPreviewColumns = clamp(Number(hallForm.totalColumns) || 0, 1, 12);
   const generatedSeatCount = Math.max(0, (Number(hallForm.totalRows) || 0) * (Number(hallForm.totalColumns) || 0));
 
-  async function createMovie(event: FormEvent) {
+  function movieBody(form: typeof movieForm) {
+    return JSON.stringify({
+      ...form,
+      durationMinutes: Number(form.durationMinutes),
+      imdbRating: form.imdbRating ? Number(form.imdbRating) : null,
+    });
+  }
+
+  // The catalog was add-only, so a typo in a title could never be corrected from
+  // the UI. The same form now edits an existing film when one is selected.
+  async function saveMovie(event: FormEvent) {
     event.preventDefault();
-    await run("Movie added to the catalog.", () =>
-      apiFetch<Movie>("/admin/movies", {
-        method: "POST",
-        body: JSON.stringify({
-          ...movieForm,
-          durationMinutes: Number(movieForm.durationMinutes),
-          imdbRating: movieForm.imdbRating ? Number(movieForm.imdbRating) : null,
+    const editing = editingMovieId;
+    await run(editing ? "Movie updated." : "Movie added to the catalog.", () =>
+      apiFetch<Movie>(editing ? `/admin/movies/${editing}` : "/admin/movies", {
+        method: editing ? "PUT" : "POST",
+        body: movieBody(movieForm),
+      }),
+    );
+    if (editing) setEditingMovieId(null);
+  }
+
+  function startEditMovie(movie: Movie) {
+    setEditingMovieId(movie.id);
+    setMovieForm({
+      title: movie.title,
+      description: movie.description ?? "",
+      durationMinutes: String(movie.durationMinutes),
+      genre: movie.genre ?? "",
+      language: movie.language ?? "",
+      rating: movie.rating ?? "",
+      imdbRating: movie.imdbRating != null ? String(movie.imdbRating) : "",
+      posterUrl: movie.posterUrl ?? "",
+      releaseDate: movie.releaseDate?.slice(0, 10) ?? "",
+      status: movie.status,
+    });
+  }
+
+  function cancelEditMovie() {
+    setEditingMovieId(null);
+    setMovieForm(emptyMovieForm);
+  }
+
+  async function setMovieStatus(movie: Movie, status: Movie["status"]) {
+    await run(status === "ARCHIVED" ? "Movie archived." : "Movie is back on sale.", () =>
+      apiFetch<Movie>(`/admin/movies/${movie.id}`, {
+        method: "PUT",
+        body: movieBody({
+          title: movie.title,
+          description: movie.description ?? "",
+          durationMinutes: String(movie.durationMinutes),
+          genre: movie.genre ?? "",
+          language: movie.language ?? "",
+          rating: movie.rating ?? "",
+          imdbRating: movie.imdbRating != null ? String(movie.imdbRating) : "",
+          posterUrl: movie.posterUrl ?? "",
+          releaseDate: movie.releaseDate?.slice(0, 10) ?? "",
+          status,
         }),
       }),
     );
@@ -307,74 +360,55 @@ export default function AdminPage() {
         <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-accent/30" />
 
         <div className="relative mx-auto max-w-7xl">
-          <header className="grid gap-4 xl:grid-cols-[1fr_420px]">
-            <div className="rounded-lg border border-line bg-panel/65 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.24)] sm:p-7">
-              <div className="flex flex-wrap items-center gap-3">
-                <span className="flex items-center gap-2 rounded-md border border-accent/30 bg-accent/10 px-3 py-2 font-mono text-xs uppercase text-accent">
-                  <ShieldCheck size={15} aria-hidden />
-                  Admin suite
-                </span>
-                <span className="rounded-md border border-line bg-background px-3 py-2 text-sm text-muted">
-                  {canManage ? `${user?.role} access` : "Login required"}
-                </span>
+          {/* An operations screen should open on data, not on a marketing headline —
+              on a phone the old hero filled the whole first screen. */}
+          <header className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex min-w-0 items-center gap-3">
+              <span className="grid size-11 shrink-0 place-items-center rounded-lg border border-line bg-panel text-accent">
+                {activeMeta.icon}
+              </span>
+              <div className="min-w-0">
+                <p className="flex items-center gap-2 font-mono text-xs uppercase text-accent">
+                  <ShieldCheck size={13} aria-hidden />
+                  {canManage ? `${user?.role} access` : "Admin access required"}
+                </p>
+                <h1 className="mt-1 truncate text-2xl font-semibold sm:text-3xl">{activeMeta.label}</h1>
               </div>
-              <h1 className="mt-5 max-w-4xl text-4xl font-semibold leading-none text-foreground sm:text-5xl lg:text-6xl">
-                Cinema operations, split into the jobs you actually do.
-              </h1>
-              <p className="mt-5 max-w-3xl text-base leading-7 text-muted sm:text-lg">
-                Control ticket sales, movie catalog, cinema branches, halls, automatic seat layouts, and showtime scheduling from one focused admin workspace.
-              </p>
             </div>
-
-            <aside className="rounded-lg border border-line bg-background/82 p-5 shadow-[0_24px_80px_rgba(0,0,0,0.24)]">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="font-mono text-xs uppercase text-accent">Current workspace</p>
-                  <h2 className="mt-3 text-3xl font-semibold">{activeMeta.label}</h2>
-                  <p className="mt-3 text-sm leading-6 text-muted">{activeMeta.helper}</p>
-                </div>
-                <span className="grid size-12 place-items-center rounded-lg border border-line bg-panel text-accent">
-                  {activeMeta.icon}
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => canManage && load()}
-                disabled={!canManage || isLoading}
-                className="mt-5 flex w-full items-center justify-center gap-2 rounded-md bg-accent px-4 py-3 font-semibold text-background transition active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {isLoading ? <Loader2 size={17} className="animate-spin" aria-hidden /> : <Activity size={17} aria-hidden />}
-                {isLoading ? "Refreshing" : "Refresh data"}
-              </button>
-            </aside>
+            <button
+              type="button"
+              onClick={() => canManage && load()}
+              disabled={!canManage || isLoading}
+              className="flex items-center justify-center gap-2 rounded-md border border-line px-4 py-2.5 text-sm font-semibold text-muted transition hover:border-accent hover:text-accent active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isLoading ? <Loader2 size={16} className="animate-spin" aria-hidden /> : <Activity size={16} aria-hidden />}
+              {isLoading ? "Refreshing" : "Refresh"}
+            </button>
           </header>
 
           {!canManage ? (
             <AccessRequired />
           ) : (
             <>
-              <nav className="mt-5 overflow-x-auto cinema-scrollbar-none" aria-label="Admin workspaces">
-                <div className="flex min-w-max gap-3 pb-1">
-                  {sections.map((section) => (
-                    <button
-                      key={section.key}
-                      type="button"
-                      onClick={() => setActiveSection(section.key)}
-                      className={`group w-[220px] rounded-lg border p-4 text-left transition duration-300 active:scale-[0.98] ${
-                        activeSection === section.key
-                          ? "border-accent bg-accent/12 text-foreground"
-                          : "border-line bg-panel/60 text-muted hover:border-accent/60 hover:text-foreground"
-                      }`}
-                    >
-                      <span className="flex items-center justify-between gap-3">
-                        <span className="grid size-10 place-items-center rounded-md bg-background text-accent">{section.icon}</span>
-                        <ChevronRight size={18} className="transition duration-300 group-hover:translate-x-1" aria-hidden />
-                      </span>
-                      <span className="mt-4 block font-mono text-xs uppercase text-accent">{section.eyebrow}</span>
-                      <span className="mt-1 block text-lg font-semibold">{section.label}</span>
-                    </button>
-                  ))}
-                </div>
+              {/* Wrapping pills instead of fixed-width cards: the old strip ran off
+                  the right edge of a 1280px screen with no scroll affordance. */}
+              <nav className="mt-5 flex flex-wrap gap-2" aria-label="Admin workspaces">
+                {sections.map((section) => (
+                  <button
+                    key={section.key}
+                    type="button"
+                    aria-current={activeSection === section.key ? "page" : undefined}
+                    onClick={() => setActiveSection(section.key)}
+                    className={`flex items-center gap-2 rounded-md border px-3.5 py-2.5 text-sm font-medium transition active:scale-[0.98] ${
+                      activeSection === section.key
+                        ? "border-accent bg-accent/12 text-foreground"
+                        : "border-line bg-panel/60 text-muted hover:border-accent/60 hover:text-foreground"
+                    }`}
+                  >
+                    <span className="text-accent">{section.icon}</span>
+                    {section.label}
+                  </button>
+                ))}
               </nav>
 
               <StatusStrip error={error} success={success} />
@@ -387,7 +421,6 @@ export default function AdminPage() {
                     cinemas={cinemas}
                     halls={halls}
                     showtimes={sortedShowtimes}
-                    nextShowtime={nextShowtime}
                     averageTicket={averageTicket}
                   />
                 ) : null}
@@ -407,8 +440,12 @@ export default function AdminPage() {
                     movies={movies}
                     movieForm={movieForm}
                     setMovieForm={setMovieForm}
-                    onSubmit={createMovie}
+                    onSubmit={saveMovie}
                     isSaving={isSaving}
+                    editingMovieId={editingMovieId}
+                    onEdit={startEditMovie}
+                    onCancelEdit={cancelEditMovie}
+                    onSetStatus={setMovieStatus}
                   />
                 ) : null}
 
@@ -469,7 +506,6 @@ function DashboardWorkspace({
   cinemas,
   halls,
   showtimes,
-  nextShowtime,
   averageTicket,
 }: {
   dashboard: Dashboard | null;
@@ -477,39 +513,65 @@ function DashboardWorkspace({
   cinemas: Cinema[];
   halls: Hall[];
   showtimes: Showtime[];
-  nextShowtime?: Showtime;
   averageTicket: number;
 }) {
+  // The checklist answers "is anything missing", so it only lists what is not set
+  // up yet. The counts themselves already live in the metric tiles above.
   const setupItems = [
-    { label: "Movies", complete: movies.length > 0, helper: `${movies.length} catalog records` },
-    { label: "Cinemas", complete: cinemas.length > 0, helper: `${cinemas.length} branches` },
-    { label: "Halls", complete: halls.length > 0, helper: `${halls.length} halls in selected branch` },
-    { label: "Showtimes", complete: showtimes.length > 0, helper: `${showtimes.length} scheduled sessions` },
+    { label: "Movies", complete: movies.length > 0, helper: "Add at least one film to the catalog" },
+    { label: "Cinemas", complete: cinemas.length > 0, helper: "Create a branch to host screenings" },
+    { label: "Halls", complete: halls.length > 0, helper: `Add a hall to ${cinemas[0]?.name ?? "the selected branch"}` },
+    { label: "Showtimes", complete: showtimes.length > 0, helper: "Schedule sessions so seats go on sale" },
   ];
+  const outstanding = setupItems.filter((item) => !item.complete);
+  // Read the clock once on mount rather than on every render.
+  const [now] = useState(() => Date.now());
+  const upcoming = showtimes
+    .filter((showtime) => new Date(showtime.startTime).getTime() >= now)
+    .slice(0, 5);
 
   return (
     <div className="grid gap-6 xl:grid-cols-[1fr_380px]">
       <div className="space-y-6">
         <MetricsGrid dashboard={dashboard} averageTicket={averageTicket} />
         <Panel>
-          <PanelHeader eyebrow="Today" title="Operations dashboard" helper="A fast read of what is ready and what still needs setup." icon={<Gauge size={19} aria-hidden />} />
-          <div className="mt-5 grid gap-3 md:grid-cols-2">
-            <SignalBlock icon={<CalendarClock size={18} aria-hidden />} label="Next showtime" value={nextShowtime ? formatTime(nextShowtime.startTime) : "No queue"} detail={nextShowtime?.movieTitle ?? "Create a schedule"} />
-            <SignalBlock icon={<Ticket size={18} aria-hidden />} label="Bookings" value={String(dashboard?.bookings ?? 0)} detail={`${dashboard?.paidBookings ?? 0} paid confirmations`} />
-            <SignalBlock icon={<Clapperboard size={18} aria-hidden />} label="Movie catalog" value={String(dashboard?.movies ?? movies.length)} detail="Now showing and coming soon" />
-            <SignalBlock icon={<Theater size={18} aria-hidden />} label="Showtimes" value={String(dashboard?.showtimes ?? showtimes.length)} detail="Sessions available to customers" />
+          <PanelHeader eyebrow="Today" title="Next up" helper="The sessions customers can walk into soonest." icon={<Gauge size={19} aria-hidden />} />
+          <div className="mt-5 space-y-2">
+            {upcoming.map((showtime) => (
+              <div key={showtime.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-line bg-background p-4">
+                <div className="min-w-0">
+                  <p className="truncate font-semibold">{showtime.movieTitle}</p>
+                  <p className="mt-1 text-sm text-muted">
+                    {showtime.hallName} · {formatDateTime(showtime.startTime)}
+                  </p>
+                </div>
+                <Occupancy sold={showtime.soldSeats} total={showtime.totalSeats} />
+              </div>
+            ))}
+            {upcoming.length === 0 && (
+              <EmptyState label="Nothing scheduled ahead" helper="Create showtimes so customers have something to book." />
+            )}
           </div>
         </Panel>
       </div>
 
       <Panel>
-        <PanelHeader eyebrow="Setup" title="Admin checklist" helper="Keep every booking dependency ready before sales open." icon={<Settings2 size={19} aria-hidden />} />
+        <PanelHeader
+          eyebrow="Setup"
+          title={outstanding.length === 0 ? "Ready to sell" : "Finish setup"}
+          helper={
+            outstanding.length === 0
+              ? "Everything a booking depends on is in place."
+              : `${outstanding.length} ${outstanding.length === 1 ? "step" : "steps"} left before seats can go on sale.`
+          }
+          icon={<Settings2 size={19} aria-hidden />}
+        />
         <div className="mt-5 space-y-3">
           {setupItems.map((item) => (
             <div key={item.label} className="flex items-center justify-between gap-4 rounded-md border border-line bg-background p-4">
               <div>
-                <p className="font-semibold">{item.label}</p>
-                <p className="mt-1 text-sm text-muted">{item.helper}</p>
+                <p className={item.complete ? "font-semibold text-muted" : "font-semibold"}>{item.label}</p>
+                {!item.complete && <p className="mt-1 text-sm text-muted">{item.helper}</p>}
               </div>
               <span className={`grid size-9 place-items-center rounded-md ${item.complete ? "bg-success/15 text-success" : "bg-accent/12 text-accent"}`}>
                 {item.complete ? <CheckCircle2 size={18} aria-hidden /> : <Plus size={18} aria-hidden />}
@@ -518,6 +580,27 @@ function DashboardWorkspace({
           ))}
         </div>
       </Panel>
+    </div>
+  );
+}
+
+/** Seats sold against capacity — the number a sales screen actually needs. */
+function Occupancy({ sold, total }: { sold?: number | null; total?: number | null }) {
+  if (!total) return null;
+  const soldSeats = sold ?? 0;
+  const percent = Math.round((soldSeats / total) * 100);
+
+  return (
+    <div className="w-36 shrink-0">
+      <div className="flex items-baseline justify-between gap-2 text-sm">
+        <span className="font-mono text-accent">
+          {soldSeats}/{total}
+        </span>
+        <span className="text-xs text-muted">{percent}% full</span>
+      </div>
+      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-line">
+        <div className="h-full rounded-full bg-accent" style={{ width: `${Math.min(100, percent)}%` }} />
+      </div>
     </div>
   );
 }
@@ -535,6 +618,13 @@ function TicketSalesWorkspace({
   paidBookings: number;
   averageTicket: number;
 }) {
+  // Sessions that are actually selling belong at the top; a list in schedule order
+  // buries the ones worth looking at.
+  const busiestSessions = showtimes
+    .slice()
+    .sort((a, b) => Number(b.soldSeats ?? 0) - Number(a.soldSeats ?? 0))
+    .slice(0, 10);
+
   return (
     <div className="grid gap-6 xl:grid-cols-[380px_1fr]">
       <Panel>
@@ -548,19 +638,22 @@ function TicketSalesWorkspace({
       </Panel>
 
       <Panel>
-        <PanelHeader eyebrow="Demand" title="Session sales board" helper="Use this to scan which sessions are on sale and ready for customer booking." icon={<BarChart3 size={19} aria-hidden />} />
+        <PanelHeader eyebrow="Demand" title="Session sales board" helper="How full each session is, busiest first." icon={<BarChart3 size={19} aria-hidden />} />
         <div className="mt-5 grid gap-3">
-          {showtimes.slice(0, 10).map((showtime) => (
+          {busiestSessions.map((showtime) => (
             <div key={showtime.id} className="grid gap-4 rounded-md border border-line bg-background p-4 md:grid-cols-[1fr_auto] md:items-center">
-              <div>
-                <p className="text-lg font-semibold">{showtime.movieTitle}</p>
+              <div className="min-w-0">
+                <p className="truncate text-lg font-semibold">{showtime.movieTitle}</p>
                 <p className="mt-1 text-sm text-muted">
                   {showtime.cinemaName}, {showtime.hallName} · {formatDateTime(showtime.startTime)}
                 </p>
+                <p className="mt-1 font-mono text-sm text-accent">
+                  {formatMoney(Number(showtime.soldSeats ?? 0) * Number(showtime.basePrice))} sold ·{" "}
+                  {formatMoney(Number(showtime.basePrice))} a seat
+                </p>
               </div>
-              <div className="flex items-center gap-3 md:justify-end">
-                <span className="font-mono text-sm text-accent">{formatMoney(Number(showtime.basePrice))} base</span>
-                <StatusBadge status={showtime.status} />
+              <div className="md:justify-self-end">
+                <Occupancy sold={showtime.soldSeats} total={showtime.totalSeats} />
               </div>
             </div>
           ))}
@@ -613,7 +706,15 @@ function MovieWorkspace({
   setMovieForm,
   onSubmit,
   isSaving,
+  editingMovieId,
+  onEdit,
+  onCancelEdit,
+  onSetStatus,
 }: {
+  editingMovieId: string | null;
+  onEdit: (movie: Movie) => void;
+  onCancelEdit: () => void;
+  onSetStatus: (movie: Movie, status: Movie["status"]) => void;
   movies: Movie[];
   movieForm: {
     title: string;
@@ -645,8 +746,31 @@ function MovieWorkspace({
   return (
     <WorkspaceGrid>
       <Panel>
-        <PanelHeader eyebrow="Add movie" title="Movie management" helper="Create the customer-facing movie card and detail page data." icon={<Film size={19} aria-hidden />} />
-        <AdminForm onSubmit={onSubmit} buttonLabel="Add movie" isSaving={isSaving} icon={<Plus size={17} aria-hidden />}>
+        <PanelHeader
+          eyebrow={editingMovieId ? "Edit movie" : "Add movie"}
+          title="Movie management"
+          helper={
+            editingMovieId
+              ? "Change the details customers see, then save."
+              : "Create the customer-facing movie card and detail page data."
+          }
+          icon={<Film size={19} aria-hidden />}
+        />
+        {editingMovieId && (
+          <button
+            type="button"
+            onClick={onCancelEdit}
+            className="mt-4 rounded-md border border-line px-3 py-1.5 text-xs font-semibold text-muted hover:border-accent hover:text-accent"
+          >
+            Cancel edit and add a new movie instead
+          </button>
+        )}
+        <AdminForm
+          onSubmit={onSubmit}
+          buttonLabel={editingMovieId ? "Save changes" : "Add movie"}
+          isSaving={isSaving}
+          icon={<Plus size={17} aria-hidden />}
+        >
           <div className="grid gap-3 lg:grid-cols-2">
             <Input label="Poster URL" value={movieForm.posterUrl} onChange={(value) => setMovieForm((current) => ({ ...current, posterUrl: value }))} />
             <Input label="Title" value={movieForm.title} onChange={(value) => setMovieForm((current) => ({ ...current, title: value }))} />
@@ -675,11 +799,55 @@ function MovieWorkspace({
         </AdminForm>
       </Panel>
 
-      <InventoryPanel title="Current movies" eyebrow="Catalog" count={movies.length} icon={<Search size={18} aria-hidden />}>
-        {movies.map((movie) => (
-          <InventoryRow key={movie.id} title={movie.title} meta={`${movie.genre} · ${movie.rating} · ${movie.durationMinutes} min`} detail={movie.status} />
-        ))}
-      </InventoryPanel>
+      <FilterableInventoryPanel
+        title="Current movies"
+        eyebrow="Catalog"
+        icon={<Search size={18} aria-hidden />}
+        items={movies}
+        searchPlaceholder="Search by title or genre"
+        matches={(movie, query) =>
+          `${movie.title} ${movie.genre ?? ""} ${movie.status}`.toLowerCase().includes(query)
+        }
+        renderItem={(movie) => (
+          <article key={movie.id} className="rounded-md border border-line bg-background p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <p className="truncate font-semibold">{movie.title}</p>
+                <p className="mt-1 truncate text-sm text-muted">
+                  {movie.genre} · {movie.rating} · {movie.durationMinutes} min
+                </p>
+              </div>
+              <StatusBadge status={movie.status} />
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => onEdit(movie)}
+                className="rounded-md border border-line px-3 py-1.5 text-xs font-semibold text-muted hover:border-accent hover:text-accent"
+              >
+                {editingMovieId === movie.id ? "Editing" : "Edit"}
+              </button>
+              {movie.status === "ARCHIVED" ? (
+                <button
+                  type="button"
+                  onClick={() => onSetStatus(movie, "NOW_SHOWING")}
+                  className="rounded-md border border-line px-3 py-1.5 text-xs font-semibold text-muted hover:border-success hover:text-success"
+                >
+                  Put back on sale
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => onSetStatus(movie, "ARCHIVED")}
+                  className="rounded-md border border-line px-3 py-1.5 text-xs font-semibold text-muted hover:border-danger hover:text-danger"
+                >
+                  Archive
+                </button>
+              )}
+            </div>
+          </article>
+        )}
+      />
     </WorkspaceGrid>
   );
 }
@@ -838,11 +1006,31 @@ function ShowtimeWorkspace({
         </AdminForm>
       </Panel>
 
-      <InventoryPanel title="Scheduled sessions" eyebrow="Calendar" count={showtimes.length} icon={<CalendarClock size={18} aria-hidden />}>
-        {showtimes.map((showtime) => (
-          <InventoryRow key={showtime.id} title={showtime.movieTitle} meta={`${showtime.cinemaName}, ${showtime.hallName}`} detail={`${formatDateTime(showtime.startTime)} · ${formatMoney(Number(showtime.basePrice))}`} />
-        ))}
-      </InventoryPanel>
+      <FilterableInventoryPanel
+        title="Scheduled sessions"
+        eyebrow="Calendar"
+        icon={<CalendarClock size={18} aria-hidden />}
+        items={showtimes}
+        searchPlaceholder="Search by movie or hall"
+        matches={(showtime, query) =>
+          `${showtime.movieTitle} ${showtime.hallName} ${showtime.cinemaName}`.toLowerCase().includes(query)
+        }
+        renderItem={(showtime) => (
+          <article key={showtime.id} className="rounded-md border border-line bg-background p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0">
+                <p className="truncate font-semibold">{showtime.movieTitle}</p>
+                <p className="mt-1 truncate text-sm text-muted">
+                  {showtime.hallName} · {formatDateTime(showtime.startTime)}
+                </p>
+              </div>
+              <span className="shrink-0 rounded-md bg-panel px-2.5 py-1 font-mono text-xs text-accent">
+                {formatMoney(Number(showtime.basePrice))}
+              </span>
+            </div>
+          </article>
+        )}
+      />
     </WorkspaceGrid>
   );
 }
@@ -909,19 +1097,6 @@ function MetricCard({ icon, label, value, detail }: { icon: ReactNode; label: st
       <p className="mt-4 font-mono text-2xl font-semibold text-accent">{value}</p>
       <p className="mt-1 text-sm text-muted">{detail}</p>
     </article>
-  );
-}
-
-function SignalBlock({ icon, label, value, detail }: { icon: ReactNode; label: string; value: string; detail: string }) {
-  return (
-    <div className="rounded-md border border-line bg-background p-4">
-      <div className="flex items-center gap-2 text-accent">
-        {icon}
-        <span className="text-sm text-muted">{label}</span>
-      </div>
-      <p className="mt-3 text-2xl font-semibold">{value}</p>
-      <p className="mt-1 truncate text-sm text-muted">{detail}</p>
-    </div>
   );
 }
 
@@ -1025,10 +1200,84 @@ function Select({
   );
 }
 
+/**
+ * A list that can be searched and grows on demand. The schedule alone runs to
+ * hundreds of rows, which is unusable as one long scroll.
+ */
+function FilterableInventoryPanel<T>({
+  title,
+  eyebrow,
+  icon,
+  items,
+  matches,
+  renderItem,
+  searchPlaceholder,
+  pageSize = 20,
+}: {
+  title: string;
+  eyebrow: string;
+  icon: ReactNode;
+  items: T[];
+  matches: (item: T, query: string) => boolean;
+  renderItem: (item: T) => ReactNode;
+  searchPlaceholder: string;
+  pageSize?: number;
+}) {
+  const [query, setQuery] = useState("");
+  const [visible, setVisible] = useState(pageSize);
+
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return needle ? items.filter((item) => matches(item, needle)) : items;
+  }, [items, matches, query]);
+
+  const shown = filtered.slice(0, visible);
+
+  return (
+    <Panel>
+      <PanelHeader
+        eyebrow={eyebrow}
+        title={title}
+        helper={filtered.length === 1 ? "1 item" : `${filtered.length} items`}
+        icon={icon}
+      />
+      <label className="sr-only" htmlFor={`search-${eyebrow}`}>
+        {searchPlaceholder}
+      </label>
+      <input
+        id={`search-${eyebrow}`}
+        value={query}
+        onChange={(event) => {
+          setQuery(event.target.value);
+          setVisible(pageSize);
+        }}
+        placeholder={searchPlaceholder}
+        className="mt-4 w-full rounded-md border border-line bg-background px-3 py-2.5 text-sm outline-none focus:border-accent"
+      />
+      <div className="mt-4 max-h-[640px] space-y-3 overflow-y-auto pr-1 cinema-scrollbar-none">
+        {shown.length > 0 ? (
+          shown.map(renderItem)
+        ) : (
+          <EmptyState label="Nothing matches" helper="Try a different search, or clear the box." />
+        )}
+      </div>
+      {filtered.length > shown.length && (
+        <button
+          type="button"
+          onClick={() => setVisible((current) => current + pageSize)}
+          className="mt-4 w-full rounded-md border border-line px-4 py-2.5 text-sm font-semibold text-muted hover:border-accent hover:text-accent"
+        >
+          Show {Math.min(pageSize, filtered.length - shown.length)} more of {filtered.length}
+        </button>
+      )}
+    </Panel>
+  );
+}
+
 function InventoryPanel({ title, eyebrow, count, icon, children }: { title: string; eyebrow: string; count: number; icon: ReactNode; children: ReactNode }) {
   return (
     <Panel>
-      <PanelHeader eyebrow={eyebrow} title={title} helper={`${count} records loaded from the admin API.`} icon={icon} />
+      <PanelHeader eyebrow={eyebrow} title={title} helper={count === 1 ? "1 item" : `${count} items`} icon={icon} />
       <div className="mt-5 max-h-[640px] space-y-3 overflow-y-auto pr-1 cinema-scrollbar-none">
         {count > 0 ? children : <EmptyState label="No records yet" helper="Create the first item from the form." />}
       </div>
@@ -1079,10 +1328,6 @@ function EmptyState({ label, helper }: { label: string; helper: string }) {
 
 function formatMoney(value: number) {
   return `$${Number(value || 0).toFixed(2)}`;
-}
-
-function formatTime(value: string) {
-  return new Date(value).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 }
 
 function formatDateTime(value: string) {

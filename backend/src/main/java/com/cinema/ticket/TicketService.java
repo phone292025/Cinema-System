@@ -127,7 +127,8 @@ public class TicketService {
             booking.setUpdatedAt(Instant.now());
         }
         notifications.create(booking.getUser().getId(), "BOOKING_CONFIRMED", "Your ticket is ready",
-                "Show your QR ticket at the cinema entrance for " + booking.getShowtime().getMovie().getTitle() + ".");
+                "Show your QR ticket at the cinema entrance for " + booking.getShowtime().getMovie().getTitle() + ".",
+                booking.getId());
         auditLogs.system("TICKET_ISSUED", "Ticket", saved.getId().toString(), saved.getTicketCode());
         return saved;
     }

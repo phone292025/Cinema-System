@@ -3,12 +3,13 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { CheckCircle2, History, QrCode } from "lucide-react";
+import { CheckCircle2, History, Loader2, QrCode } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { AppShell } from "@/components/AppShell";
 import { StatusBadge } from "@/components/StatusBadge";
 import { apiBlob, apiFetch } from "@/lib/api";
+import { formatShowtime } from "@/lib/format";
 import type { Booking, Ticket } from "@/lib/types";
 
 export default function ConfirmationPage() {
@@ -16,6 +17,7 @@ export default function ConfirmationPage() {
   const [booking, setBooking] = useState<Booking | null>(null);
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [qrUrl, setQrUrl] = useState("");
+  const [ticketState, setTicketState] = useState<"pending" | "ready" | "slow">("pending");
 
   useEffect(() => {
     apiFetch<Booking>(`/bookings/${params.bookingId}`).then(setBooking);
@@ -36,9 +38,15 @@ export default function ConfirmationPage() {
         if (cancelled) return;
         objectUrl = URL.createObjectURL(blob);
         setQrUrl(objectUrl);
+        setTicketState("ready");
       } catch {
-        if (!cancelled && attempts < 8) {
+        if (cancelled) return;
+        // Tickets are issued by a background worker a moment after payment, so keep
+        // asking rather than showing an empty page.
+        if (attempts < 8) {
           window.setTimeout(loadTicket, 1200);
+        } else {
+          setTicketState("slow");
         }
       }
     }
@@ -63,11 +71,34 @@ export default function ConfirmationPage() {
             </div>
             <h2 className="mt-4 text-2xl font-semibold">{booking.movieTitle}</h2>
             <p className="mt-2 text-muted">
-              {booking.cinemaName}, {booking.hallName} · {new Date(booking.startTime).toLocaleString()}
+              {booking.cinemaName}, {booking.hallName} · {formatShowtime(booking.startTime)}
             </p>
             <p className="mt-4 text-sm text-muted">
               Seats: {booking.seats.map((seat) => `${seat.rowLabel}${seat.seatNumber}`).join(", ")}
             </p>
+          </div>
+        )}
+        {!ticket && (
+          <div className="mt-5 rounded-lg border border-line bg-panel p-5 text-left">
+            <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
+              <div className="grid size-44 shrink-0 place-items-center rounded-md border border-dashed border-line bg-background">
+                {ticketState === "slow" ? (
+                  <QrCode className="text-muted" size={68} aria-hidden />
+                ) : (
+                  <Loader2 className="animate-spin text-accent" size={40} aria-hidden />
+                )}
+              </div>
+              <div>
+                <h2 className="text-2xl font-semibold">
+                  {ticketState === "slow" ? "Your ticket is taking a moment" : "Preparing your ticket"}
+                </h2>
+                <p className="mt-2 text-muted">
+                  {ticketState === "slow"
+                    ? "Your booking is paid and safe. Refresh this page, or find the ticket in your booking history shortly."
+                    : "Your payment went through. We are generating the QR code you will show at the entrance."}
+                </p>
+              </div>
+            </div>
           </div>
         )}
         {ticket && (
