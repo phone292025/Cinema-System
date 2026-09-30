@@ -39,17 +39,26 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      JWT_ACCESS_TOKEN_MINUTES: ${JWT_ACCESS_TOKEN_MINUTES:-30}
+      JWT_REFRESH_TOKEN_DAYS: ${JWT_REFRESH_TOKEN_DAYS:-14}
       TICKET_SECRET: ${TICKET_SECRET:?Set TICKET_SECRET in .env}
+      APP_TIME_ZONE: ${APP_TIME_ZONE:-UTC}
+      SEED_CATALOG_ENABLED: ${SEED_CATALOG_ENABLED:-true}
       DEMO_USERS_ENABLED: ${DEMO_USERS_ENABLED:-false}
       DEMO_ADMIN_EMAIL: ${DEMO_ADMIN_EMAIL:-admin@cinema.test}
       DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:-}
       DEMO_CUSTOMER_EMAIL: ${DEMO_CUSTOMER_EMAIL:-customer@cinema.test}
       DEMO_CUSTOMER_PASSWORD: ${DEMO_CUSTOMER_PASSWORD:-}
+      BOOKING_LOCK_MINUTES: ${BOOKING_LOCK_MINUTES:-5}
+      BOOKING_CANCEL_CUTOFF_HOURS: ${BOOKING_CANCEL_CUTOFF_HOURS:-2}
+      PRICING_PREMIUM_SURCHARGE: ${PRICING_PREMIUM_SURCHARGE:-4.00}
+      PAYMENT_MOCK_GATEWAY_ENABLED: ${PAYMENT_MOCK_GATEWAY_ENABLED:-true}
+      PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:-}
       RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
       RATE_LIMIT_AUTH_PER_MINUTE: ${RATE_LIMIT_AUTH_PER_MINUTE:-10}
       RATE_LIMIT_PAYMENT_PER_MINUTE: ${RATE_LIMIT_PAYMENT_PER_MINUTE:-30}
       RATE_LIMIT_TRUST_FORWARDED_FOR: ${RATE_LIMIT_TRUST_FORWARDED_FOR:-false}
-      CORS_ALLOWED_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:
@@ -57,16 +66,23 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/api/actuator/health/readiness || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 90s
 
   frontend:
     build:
       context: ./frontend
-    environment:
-      NEXT_PUBLIC_API_BASE_URL: http://localhost:8080/api
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:8080/api}
     ports:
       - "127.0.0.1:3000:3000"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
 volumes:
   postgres-data:

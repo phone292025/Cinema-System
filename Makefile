@@ -1,4 +1,4 @@
-.PHONY: up rebuild down restart ps logs backend-logs frontend-logs test-backend lint-frontend test-frontend build-frontend verify
+.PHONY: up rebuild down restart ps logs backend-logs frontend-logs health config test-backend lint-frontend test-frontend build-frontend verify
 
 up:
 	docker compose up -d --no-build
@@ -22,6 +22,12 @@ backend-logs:
 
 frontend-logs:
 	docker compose logs -f frontend
+
+health:
+	curl -fsS http://127.0.0.1:8080/api/actuator/health/readiness
+
+config:
+	docker compose config --quiet
 
 test-backend:
 	cd backend && ./mvnw test
