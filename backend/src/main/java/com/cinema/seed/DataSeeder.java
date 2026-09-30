@@ -1,6 +1,7 @@
 package com.cinema.seed;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
@@ -17,6 +18,7 @@ import com.cinema.movie.MovieStatus;
 import com.cinema.seat.Seat;
 import com.cinema.seat.SeatRepository;
 import com.cinema.seat.SeatType;
+import com.cinema.showtime.SeatPricing;
 import com.cinema.showtime.Showtime;
 import com.cinema.showtime.ShowtimeRepository;
 import com.cinema.showtime.ShowtimeSeat;
@@ -35,10 +37,16 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 
 @Configuration
 public class DataSeeder {
+    private static final int SHOWTIMES_PER_MOVIE = 3;
+    private static final Duration CLEANING_GAP = Duration.ofMinutes(20);
+    private static final Duration SLOT = Duration.ofMinutes(15);
+
     @Bean
     CommandLineRunner seed(UserRepository users, MovieRepository movies, CinemaRepository cinemas, HallRepository halls,
             SeatRepository seats, ShowtimeRepository showtimes, ShowtimeSeatRepository showtimeSeats, PasswordEncoder encoder,
+            SeatPricing pricing,
             @Value("${app.seed.demo-users-enabled:false}") boolean demoUsersEnabled,
+            @Value("${app.seed.catalog-enabled:false}") boolean catalogEnabled,
             @Value("${app.seed.demo-admin-email:admin@cinema.test}") String demoAdminEmail,
             @Value("${app.seed.demo-admin-password:}") String demoAdminPassword,
             @Value("${app.seed.demo-customer-email:customer@cinema.test}") String demoCustomerEmail,
@@ -48,16 +56,18 @@ public class DataSeeder {
                 seedDemoUser(users, encoder, "Admin", demoAdminEmail, demoAdminPassword, UserRole.ADMIN);
                 seedDemoUser(users, encoder, "Demo Customer", demoCustomerEmail, demoCustomerPassword, UserRole.CUSTOMER);
             }
-
-            List<SeedMovie> catalog = topRatedCatalog();
-            List<Movie> seededMovies = new ArrayList<>();
-            for (SeedMovie seedMovie : catalog) {
-                Movie movie = movies.findByTitleIgnoreCase(seedMovie.title()).orElseGet(Movie::new);
-                applyMovie(movie, seedMovie);
-                seededMovies.add(movies.save(movie));
+            if (!catalogEnabled) {
+                return;
             }
-            archiveGeneratedDemoMovie(movies, "Aurora Run");
-            archiveGeneratedDemoMovie(movies, "The Midnight Kitchen");
+
+            List<Movie> seededMovies = new ArrayList<>();
+            for (SeedMovie seedMovie : topRatedCatalog()) {
+                seededMovies.add(movies.findByTitleIgnoreCase(seedMovie.title()).orElseGet(() -> {
+                    Movie movie = new Movie();
+                    applyMovie(movie, seedMovie);
+                    return movies.save(movie);
+                }));
+            }
 
             Cinema cinema = cinemas.findAll().stream().findFirst().orElseGet(() -> {
                 Cinema created = new Cinema();
@@ -96,28 +106,54 @@ public class DataSeeder {
             }
             List<Seat> hallSeats = createdSeats;
 
-            for (int index = 0; index < seededMovies.size(); index++) {
-                Movie movie = seededMovies.get(index);
-                if (movie.getStatus() == MovieStatus.ARCHIVED) {
-                    continue;
-                }
-                if (!showtimes.findByMovieIdAndStartTimeAfterOrderByStartTimeAsc(movie.getId(), Instant.now()).isEmpty()) {
-                    continue;
-                }
-                for (int i = 1; i <= 3; i++) {
+            List<Movie> needShowtimes = seededMovies.stream()
+                    .filter(movie -> movie.getStatus() == MovieStatus.NOW_SHOWING)
+                    .filter(movie -> showtimes.findByMovieIdAndStartTimeAfterOrderByStartTimeAsc(movie.getId(), Instant.now()).isEmpty())
+                    .toList();
+            List<Showtime> booked = new ArrayList<>(showtimes.findByHallIdAndEndTimeAfterOrderByStartTimeAsc(hall.getId(), Instant.now()));
+            Instant nextFree = Instant.now().plus(1, ChronoUnit.HOURS);
+            for (int round = 0; round < SHOWTIMES_PER_MOVIE; round++) {
+                for (Movie movie : needShowtimes) {
+                    Duration length = Duration.ofMinutes(movie.getDurationMinutes());
+                    Instant start = firstFreeSlot(booked, nextFree, length);
                     Showtime showtime = new Showtime();
                     showtime.setMovie(movie);
                     showtime.setHall(hall);
-                    long movieOffset = Math.min(index, 9);
-                    showtime.setStartTime(Instant.now().truncatedTo(ChronoUnit.HOURS).plus(i * 3L + movieOffset, ChronoUnit.HOURS));
-                    showtime.setEndTime(showtime.getStartTime().plus(movie.getDurationMinutes(), ChronoUnit.MINUTES));
+                    showtime.setStartTime(start);
+                    showtime.setEndTime(start.plus(length));
                     showtime.setBasePrice(basePriceFor(movie));
                     showtime.setStatus(ShowtimeStatus.SCHEDULED);
                     showtimes.save(showtime);
-                    showtimeSeats.saveAll(hallSeats.stream().map(seat -> showtimeSeat(showtime, seat)).toList());
+                    showtimeSeats.saveAll(hallSeats.stream().map(seat -> showtimeSeat(showtime, seat, pricing)).toList());
+                    booked.add(showtime);
+                    nextFree = showtime.getEndTime().plus(CLEANING_GAP);
                 }
             }
         };
+    }
+
+    static Instant firstFreeSlot(List<Showtime> booked, Instant earliest, Duration length) {
+        Instant start = nextSlot(earliest);
+        boolean moved = true;
+        while (moved) {
+            moved = false;
+            for (Showtime existing : booked) {
+                Instant end = start.plus(length);
+                if (existing.getStartTime().isBefore(end.plus(CLEANING_GAP)) && existing.getEndTime().plus(CLEANING_GAP).isAfter(start)) {
+                    start = nextSlot(existing.getEndTime().plus(CLEANING_GAP));
+                    moved = true;
+                }
+            }
+        }
+        return start;
+    }
+
+    static Instant nextSlot(Instant earliest) {
+        Instant truncated = earliest.truncatedTo(ChronoUnit.HOURS);
+        while (truncated.isBefore(earliest)) {
+            truncated = truncated.plus(SLOT);
+        }
+        return truncated;
     }
 
     private List<SeedMovie> topRatedCatalog() {
@@ -207,14 +243,6 @@ public class DataSeeder {
         movie.setStatus(seedMovie.status());
     }
 
-    private void archiveGeneratedDemoMovie(MovieRepository movies, String title) {
-        movies.findByTitleIgnoreCase(title).ifPresent(movie -> {
-            movie.setStatus(MovieStatus.ARCHIVED);
-            movie.setImdbRating(BigDecimal.ZERO);
-            movies.save(movie);
-        });
-    }
-
     private BigDecimal basePriceFor(Movie movie) {
         if ("Project Hail Mary".equals(movie.getTitle())) {
             return new BigDecimal("22.00");
@@ -240,12 +268,12 @@ public class DataSeeder {
         }
     }
 
-    private ShowtimeSeat showtimeSeat(Showtime showtime, Seat seat) {
+    private ShowtimeSeat showtimeSeat(Showtime showtime, Seat seat, SeatPricing pricing) {
         ShowtimeSeat showtimeSeat = new ShowtimeSeat();
         showtimeSeat.setShowtime(showtime);
         showtimeSeat.setSeat(seat);
         showtimeSeat.setStatus(ShowtimeSeatStatus.AVAILABLE);
-        showtimeSeat.setPrice(showtime.getBasePrice().add(seat.getSeatType() == SeatType.PREMIUM ? new BigDecimal("4.00") : BigDecimal.ZERO));
+        showtimeSeat.setPrice(pricing.priceFor(showtime.getBasePrice(), seat.getSeatType()));
         return showtimeSeat;
     }
 

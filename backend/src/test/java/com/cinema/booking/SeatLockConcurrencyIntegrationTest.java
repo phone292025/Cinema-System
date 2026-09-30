@@ -38,6 +38,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
         "app.jwt.secret=concurrency-test-jwt-secret-concurrency-test-jwt-secret",
         "app.ticket.secret=concurrency-test-ticket-secret-concurrency-test-ticket-secret",
         "app.seed.demo-users-enabled=true",
+        "app.seed.catalog-enabled=true",
         "app.seed.demo-admin-password=concurrency-admin-password",
         "app.seed.demo-customer-password=concurrency-customer-password",
         "spring.task.scheduling.enabled=false"

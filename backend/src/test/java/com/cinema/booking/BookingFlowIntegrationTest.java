@@ -43,6 +43,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
         "app.jwt.secret=integration-test-jwt-secret-integration-test-jwt-secret",
         "app.ticket.secret=integration-test-ticket-secret-integration-test-ticket-secret",
         "app.seed.demo-users-enabled=true",
+        "app.seed.catalog-enabled=true",
         "app.seed.demo-admin-password=integration-admin-password",
         "app.seed.demo-customer-password=integration-customer-password",
         "spring.task.scheduling.enabled=false"
