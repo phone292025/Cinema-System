@@ -1,42 +1,28 @@
 "use client";
 
+import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
 
 import { AppShell } from "@/components/AppShell";
+import { ErrorState } from "@/components/Feedback";
 import { SeatPicker } from "@/components/SeatPicker";
 import { apiFetch } from "@/lib/api";
 import { formatShowtime } from "@/lib/format";
-import { demoShowtimes, findDemoSeatAvailability } from "@/lib/demo-data";
 import type { SeatAvailabilityResponse, Showtime } from "@/lib/types";
+import { useApiQuery } from "@/lib/useApiQuery";
+
+async function loadSeatMap(showtimeId: string) {
+  const [showtime, availability] = await Promise.all([
+    apiFetch<Showtime>(`/showtimes/${showtimeId}`),
+    apiFetch<SeatAvailabilityResponse>(`/showtimes/${showtimeId}/seats`),
+  ]);
+  return { showtime, availability };
+}
 
 export default function SeatSelectionPage() {
   const params = useParams<{ id: string }>();
-  const [showtime, setShowtime] = useState<Showtime | null>(null);
-  const [availability, setAvailability] = useState<SeatAvailabilityResponse | null>(null);
-  const [error, setError] = useState("");
-  const [demoMode, setDemoMode] = useState(false);
-
-  useEffect(() => {
-    Promise.all([apiFetch<Showtime>(`/showtimes/${params.id}`), apiFetch<SeatAvailabilityResponse>(`/showtimes/${params.id}/seats`)])
-      .then(([showtimeResponse, seatsResponse]) => {
-        setShowtime(showtimeResponse);
-        setAvailability(seatsResponse);
-        setDemoMode(false);
-      })
-      .catch((err) => {
-        const fallbackShowtime = demoShowtimes.find((item) => item.id === params.id);
-        const fallbackAvailability = findDemoSeatAvailability(params.id);
-        if (fallbackShowtime && fallbackAvailability) {
-          setShowtime(fallbackShowtime);
-          setAvailability(fallbackAvailability);
-          setDemoMode(true);
-          setError("Showing a local demo seat map until the backend API is running.");
-          return;
-        }
-        setError(err.message);
-      });
-  }, [params.id]);
+  const { data, error, loading, reload } = useApiQuery(params.id, loadSeatMap);
+  const showtime = data?.showtime;
 
   return (
     <AppShell>
@@ -50,9 +36,32 @@ export default function SeatSelectionPage() {
             </p>
           )}
         </div>
-        {error && <p className="rounded-md border border-danger/40 bg-danger/10 p-4 text-danger">{error}</p>}
-        {availability && <SeatPicker showtimeId={params.id} seats={availability.seats} demoMode={demoMode} />}
+        {error && !data ? (
+          <ErrorState title="We couldn't load this seat map" message={error.message} onRetry={reload} retrying={loading}>
+            <Link href="/movies" className="text-sm font-semibold text-muted hover:text-accent">
+              Back to movies
+            </Link>
+          </ErrorState>
+        ) : null}
+        {!data && !error ? <SeatMapSkeleton /> : null}
+        {data ? <SeatPicker key={params.id} showtimeId={params.id} seats={data.availability.seats} /> : null}
       </section>
     </AppShell>
+  );
+}
+
+function SeatMapSkeleton() {
+  return (
+    <div role="status" aria-label="Loading seat map" className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="rounded-lg border border-line bg-panel p-5">
+        <div className="mb-5 h-10 animate-pulse rounded-md bg-background" />
+        <div className="mx-auto max-w-[620px] space-y-3">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <div key={index} className="h-8 animate-pulse rounded-md bg-background" />
+          ))}
+        </div>
+      </div>
+      <div className="h-64 animate-pulse rounded-lg border border-line bg-panel" />
+    </div>
   );
 }

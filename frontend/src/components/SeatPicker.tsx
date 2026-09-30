@@ -1,60 +1,39 @@
 "use client";
 
-import { Loader2, LockKeyhole, TicketCheck } from "lucide-react";
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Loader2, LockKeyhole, TicketCheck, WifiOff } from "lucide-react";
+import { Fragment, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { API_BASE, apiFetch, getAccessToken } from "@/lib/api";
-import type { Booking, SeatAvailability, SeatEvent } from "@/lib/types";
+import { apiFetch, errorMessage, getAccessToken, loginPath } from "@/lib/api";
+import type { Booking, SeatAvailability } from "@/lib/types";
+import { useLiveSeats } from "@/lib/useLiveSeats";
 
 type Props = {
   showtimeId: string;
   seats: SeatAvailability[];
-  demoMode?: boolean;
 };
 
-export function SeatPicker({ showtimeId, seats, demoMode = false }: Props) {
-  const [seatState, setSeatState] = useState({
-    showtimeId,
-    sourceSeats: seats,
-    liveSeats: seats,
-  });
+export function SeatPicker({ showtimeId, seats: initialSeats }: Props) {
   const [selected, setSelected] = useState<string[]>([]);
+  const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
-  const liveSeats = seatState.showtimeId === showtimeId && seatState.sourceSeats === seats ? seatState.liveSeats : seats;
-
-  useEffect(() => {
-    if (demoMode) return undefined;
-    const source = new EventSource(`${API_BASE}/showtimes/${showtimeId}/seat-events`);
-    const apply = (message: MessageEvent) => {
-      const event = JSON.parse(message.data) as SeatEvent;
-      setSeatState((current) => {
-        const currentSeats = current.showtimeId === showtimeId && current.sourceSeats === seats ? current.liveSeats : seats;
-        return {
-          showtimeId,
-          sourceSeats: seats,
-          liveSeats: currentSeats.map((seat) =>
-            seat.seatId === event.seatId
-              ? { ...seat, status: event.status, price: event.price, lockedUntil: event.expiresAt ?? undefined }
-              : seat,
-          ),
-        };
-      });
-      if (event.status !== "AVAILABLE") {
-        setSelected((current) => current.filter((seatId) => seatId !== event.seatId));
-      }
-    };
-    ["SEAT_LOCKED", "SEAT_RELEASED", "SEAT_BOOKED", "SEAT_BLOCKED", "SEAT_EXPIRED"].forEach((name) =>
-      source.addEventListener(name, apply),
+  const { seats: liveSeats, status } = useLiveSeats(showtimeId, initialSeats, (takenIds) => {
+    const lost = selected.filter((seatId) => takenIds.includes(seatId));
+    if (lost.length === 0) return;
+    setSelected((current) => current.filter((seatId) => !takenIds.includes(seatId)));
+    const labels = initialSeats
+      .filter((seat) => lost.includes(seat.seatId))
+      .map((seat) => `${seat.rowLabel}${seat.seatNumber}`)
+      .join(", ");
+    setNotice(
+      lost.length === 1
+        ? `Seat ${labels} was just taken, so we removed it from your selection.`
+        : `Seats ${labels} were just taken, so we removed them from your selection.`,
     );
-    source.onerror = () => {
-      source.close();
-    };
-    return () => source.close();
-  }, [demoMode, seats, showtimeId]);
+  });
 
   const grouped = useMemo(() => {
     return liveSeats.reduce<Record<string, SeatAvailability[]>>((acc, seat) => {
@@ -73,19 +52,17 @@ export function SeatPicker({ showtimeId, seats, demoMode = false }: Props) {
 
   function toggle(seat: SeatAvailability) {
     if (seat.status !== "AVAILABLE") return;
+    setNotice("");
     setSelected((current) =>
       current.includes(seat.seatId) ? current.filter((id) => id !== seat.seatId) : [...current, seat.seatId],
     );
   }
 
   async function lockSeats() {
+    if (loading) return;
     setError("");
-    if (demoMode) {
-      setError("This is a local preview of the seat map. Connect the booking service to hold seats and continue to payment.");
-      return;
-    }
     if (!getAccessToken()) {
-      router.push(`/login?next=${encodeURIComponent(`/showtimes/${showtimeId}/seats`)}`);
+      router.push(loginPath(`/showtimes/${showtimeId}/seats`));
       return;
     }
     setLoading(true);
@@ -97,8 +74,7 @@ export function SeatPicker({ showtimeId, seats, demoMode = false }: Props) {
       });
       router.push(`/checkout/${booking.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not lock seats.");
-    } finally {
+      setError(errorMessage(err, "Could not lock seats."));
       setLoading(false);
     }
   }
@@ -106,6 +82,12 @@ export function SeatPicker({ showtimeId, seats, demoMode = false }: Props) {
   return (
     <section className="grid min-w-0 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
       <div className="min-w-0 overflow-hidden rounded-lg border border-line bg-panel p-3 sm:p-5">
+        {status === "reconnecting" && (
+          <p role="status" className="mb-3 flex items-center gap-2 text-xs text-muted">
+            <WifiOff size={14} className="text-accent" aria-hidden />
+            Live updates paused, reconnecting…
+          </p>
+        )}
         <div className="mb-5 rounded-md border border-line bg-background px-4 py-3 text-center text-xs font-semibold uppercase text-muted">
           Screen
         </div>
@@ -191,7 +173,14 @@ export function SeatPicker({ showtimeId, seats, demoMode = false }: Props) {
             <span className="font-semibold text-accent">${total.toFixed(2)}</span>
           </div>
         </div>
-        {error && <p className="mt-4 rounded-md border border-danger/40 bg-danger/10 p-3 text-sm text-danger">{error}</p>}
+        <p role="status" className={notice ? "mt-4 text-sm text-accent" : "sr-only"}>
+          {notice}
+        </p>
+        {error && (
+          <p role="alert" className="mt-4 rounded-md border border-danger/40 bg-danger/10 p-3 text-sm text-danger">
+            {error}
+          </p>
+        )}
         <button
           type="button"
           disabled={selected.length === 0 || loading}
