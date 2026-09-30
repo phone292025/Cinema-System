@@ -2,6 +2,7 @@ package com.cinema.auth;
 
 import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
+import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.Base64;
@@ -23,6 +24,7 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class JwtService {
+    private static final String ALGORITHM = "HS256";
     private static final Base64.Encoder URL_ENCODER = Base64.getUrlEncoder().withoutPadding();
     private static final Base64.Decoder URL_DECODER = Base64.getUrlDecoder();
 
@@ -40,7 +42,7 @@ public class JwtService {
 
     public String issue(AuthUser user) {
         Instant now = Instant.now();
-        Map<String, Object> header = Map.of("alg", "HS256", "typ", "JWT");
+        Map<String, Object> header = Map.of("alg", ALGORITHM, "typ", "JWT");
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("sub", user.id().toString());
         payload.put("name", user.name());
@@ -53,12 +55,17 @@ public class JwtService {
 
     public Optional<AuthUser> parse(String token) {
         try {
-            String[] parts = token.split("\\.");
+            String[] parts = token.split("\\.", -1);
             if (parts.length != 3) {
                 return Optional.empty();
             }
-            String signatureInput = parts[0] + "." + parts[1];
-            if (!hmac(signatureInput).equals(parts[2])) {
+            byte[] expected = URL_ENCODER.encode(hmac(parts[0] + "." + parts[1]));
+            if (!MessageDigest.isEqual(expected, parts[2].getBytes(StandardCharsets.US_ASCII))) {
+                return Optional.empty();
+            }
+            Map<String, Object> header = objectMapper.readValue(URL_DECODER.decode(parts[0]), new TypeReference<>() {
+            });
+            if (!ALGORITHM.equals(header.get("alg"))) {
                 return Optional.empty();
             }
             Map<String, Object> payload = objectMapper.readValue(URL_DECODER.decode(parts[1]), new TypeReference<>() {
@@ -82,15 +89,15 @@ public class JwtService {
             String encodedHeader = URL_ENCODER.encodeToString(objectMapper.writeValueAsBytes(header));
             String encodedPayload = URL_ENCODER.encodeToString(objectMapper.writeValueAsBytes(payload));
             String input = encodedHeader + "." + encodedPayload;
-            return input + "." + hmac(input);
+            return input + "." + URL_ENCODER.encodeToString(hmac(input));
         } catch (Exception ex) {
             throw new IllegalStateException("Unable to issue token", ex);
         }
     }
 
-    private String hmac(String input) throws NoSuchAlgorithmException, InvalidKeyException {
+    private byte[] hmac(String input) throws NoSuchAlgorithmException, InvalidKeyException {
         Mac mac = Mac.getInstance("HmacSHA256");
         mac.init(new SecretKeySpec(secret, "HmacSHA256"));
-        return URL_ENCODER.encodeToString(mac.doFinal(input.getBytes(StandardCharsets.UTF_8)));
+        return mac.doFinal(input.getBytes(StandardCharsets.UTF_8));
     }
 }
