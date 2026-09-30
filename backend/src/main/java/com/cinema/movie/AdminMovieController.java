@@ -1,10 +1,8 @@
 package com.cinema.movie;
 
-import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 
-import com.cinema.common.ApiException;
 import com.cinema.movie.MovieDtos.MovieRequest;
 import com.cinema.movie.MovieDtos.MovieResponse;
 
@@ -26,46 +24,31 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/admin/movies")
 @PreAuthorize("hasRole('ADMIN')")
 public class AdminMovieController {
-    private final MovieRepository movies;
+    private final MovieService movieService;
 
-    public AdminMovieController(MovieRepository movies) {
-        this.movies = movies;
+    public AdminMovieController(MovieService movieService) {
+        this.movieService = movieService;
     }
 
     @GetMapping
     List<MovieResponse> list() {
-        return movies.findAll().stream().map(MovieResponse::from).toList();
+        return movieService.listAll();
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     MovieResponse create(@Valid @RequestBody MovieRequest request) {
-        return MovieResponse.from(movies.save(apply(new Movie(), request)));
+        return movieService.create(request);
     }
 
     @PutMapping("/{id}")
     MovieResponse update(@PathVariable UUID id, @Valid @RequestBody MovieRequest request) {
-        Movie movie = movies.findById(id).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Movie not found."));
-        return MovieResponse.from(movies.save(apply(movie, request)));
+        return movieService.update(id, request);
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     void delete(@PathVariable UUID id) {
-        movies.deleteById(id);
-    }
-
-    private Movie apply(Movie movie, MovieRequest request) {
-        movie.setTitle(request.title());
-        movie.setDescription(request.description());
-        movie.setDurationMinutes(request.durationMinutes());
-        movie.setGenre(request.genre());
-        movie.setLanguage(request.language());
-        movie.setRating(request.rating());
-        movie.setPosterUrl(request.posterUrl());
-        movie.setReleaseDate(request.releaseDate());
-        movie.setImdbRating(request.imdbRating() == null ? BigDecimal.ZERO : request.imdbRating());
-        movie.setStatus(request.status());
-        return movie;
+        movieService.delete(id);
     }
 }

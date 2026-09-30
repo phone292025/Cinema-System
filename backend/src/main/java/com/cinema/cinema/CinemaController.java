@@ -15,17 +15,17 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/cinemas")
 public class CinemaController {
-    private final CinemaRepository cinemas;
+    private final CinemaService cinemaService;
     private final ShowtimeService showtimeService;
 
-    public CinemaController(CinemaRepository cinemas, ShowtimeService showtimeService) {
-        this.cinemas = cinemas;
+    public CinemaController(CinemaService cinemaService, ShowtimeService showtimeService) {
+        this.cinemaService = cinemaService;
         this.showtimeService = showtimeService;
     }
 
     @GetMapping
     List<CinemaResponse> list() {
-        return cinemas.findAll().stream().map(CinemaResponse::from).toList();
+        return cinemaService.listCinemas();
     }
 
     @GetMapping("/{id}/showtimes")

@@ -6,24 +6,45 @@ import com.cinema.hall.Hall;
 import com.cinema.seat.Seat;
 import com.cinema.seat.SeatType;
 
+import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 
 public final class CinemaDtos {
+    public static final int MAX_ROWS = 26;
+    public static final int MAX_COLUMNS = 50;
+
     private CinemaDtos() {
     }
 
-    public record CinemaRequest(@NotBlank String name, @NotBlank String location, @NotBlank String address, @NotBlank String city) {
+    public record CinemaRequest(
+            @NotBlank @Size(max = 220) String name,
+            @NotBlank @Size(max = 220) String location,
+            @NotBlank String address,
+            @NotBlank @Size(max = 120) String city) {
     }
 
-    public record HallRequest(@NotBlank String name, @NotBlank String type, @Min(1) int totalRows, @Min(1) int totalColumns) {
+    public record HallRequest(
+            @NotBlank @Size(max = 120) String name,
+            @NotBlank @Size(max = 80) String type,
+            @Min(1) @Max(MAX_ROWS) int totalRows,
+            @Min(1) @Max(MAX_COLUMNS) int totalColumns,
+            SeatType defaultSeatType) {
     }
 
-    public record SeatRequest(@NotBlank String rowLabel, @Min(1) int seatNumber, @NotNull SeatType seatType) {
+    public record SeatRequest(
+            @NotBlank @Pattern(regexp = "[A-Za-z]{1,8}", message = "must be 1 to 8 letters") String rowLabel,
+            @Min(1) int seatNumber,
+            @NotNull SeatType seatType) {
     }
 
-    public record BulkSeatLayoutRequest(@Min(1) int rows, @Min(1) int columns, @NotNull SeatType defaultSeatType) {
+    public record BulkSeatLayoutRequest(
+            @Min(1) @Max(MAX_ROWS) int rows,
+            @Min(1) @Max(MAX_COLUMNS) int columns,
+            @NotNull SeatType defaultSeatType) {
     }
 
     public record CinemaResponse(UUID id, String name, String location, String address, String city) {
