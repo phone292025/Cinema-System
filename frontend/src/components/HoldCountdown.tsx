@@ -13,6 +13,11 @@ export function HoldCountdown({ expiresAt, onExpire }: { expiresAt?: string; onE
 
   useEffect(() => {
     if (!expiresAt) return undefined;
+    // A hold that is already over must block payment straight away, not after the first tick.
+    if (secondsLeft(expiresAt) === 0) {
+      onExpire?.();
+      return undefined;
+    }
 
     const timer = window.setInterval(() => {
       const next = secondsLeft(expiresAt);
