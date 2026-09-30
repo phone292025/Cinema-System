@@ -1,21 +1,21 @@
+"use client";
+
 import Image from "next/image";
 import Link from "next/link";
 import { ArrowRight, CalendarDays, CheckCircle2, Clock3, Film, LockKeyhole, Ticket, WalletCards } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import { AppShell } from "@/components/AppShell";
-import { demoMovies, featuredMovie } from "@/lib/demo-data";
+import { ErrorState } from "@/components/Feedback";
+import { PosterImage } from "@/components/PosterImage";
+import { FALLBACK_ARTWORK, liveShowcase, posterFor, showcaseSlides } from "@/lib/showcase";
+import type { Movie } from "@/lib/types";
+import { useApiQuery } from "@/lib/useApiQuery";
 
 const heroFeatures: { title: string; body: string; icon: LucideIcon }[] = [
   { title: "Your seats, held", body: "Nobody else can take them for 5 minutes while you pay.", icon: LockKeyhole },
   { title: "Never charged twice", body: "Retry safely: a repeated payment is only ever processed once.", icon: Ticket },
   { title: "Live seat map", body: "See what is still free and pick your row before checkout.", icon: CalendarDays },
-];
-
-const bookingTools: { title: string; body: string; icon: LucideIcon; href: string }[] = [
-  { title: "Browse showtimes", body: "Start with the movie list and jump straight to a session.", icon: Film, href: "/movies" },
-  { title: "Lock seats", body: "Choose the exact chairs before checkout starts.", icon: LockKeyhole, href: `/movies/${featuredMovie.id}` },
-  { title: "Booking history", body: "Check paid bookings and saved confirmations.", icon: Ticket, href: "/bookings" },
 ];
 
 const bookingFlow: { title: string; body: string; icon: LucideIcon }[] = [
@@ -25,9 +25,9 @@ const bookingFlow: { title: string; body: string; icon: LucideIcon }[] = [
   { title: "Confirmed", body: "Return later from booking history.", icon: CheckCircle2 },
 ];
 
-const posterMovies = demoMovies.slice(0, 10);
-const mobileHeroMovie = demoMovies[2] ?? featuredMovie;
-const mobilePosterGroups = chunk(demoMovies, 4);
+const PREFERRED_MOBILE_HERO = "The Dark Knight";
+const preferredHeroArtwork =
+  showcaseSlides.find((slide) => slide.title === PREFERRED_MOBILE_HERO)?.image ?? showcaseSlides[0].image;
 
 function chunk<T>(items: T[], size: number): T[][] {
   const groups: T[][] = [];
@@ -37,14 +37,41 @@ function chunk<T>(items: T[], size: number): T[][] {
   return groups;
 }
 
+function topRated(movies: Movie[]) {
+  return movies.slice().sort((a, b) => Number(b.imdbRating ?? 0) - Number(a.imdbRating ?? 0))[0];
+}
+
 export default function Home() {
+  const { data: movies, error, loading, reload } = useApiQuery<Movie[]>("/movies");
+
+  const nowShowing = (movies ?? []).filter((movie) => movie.status === "NOW_SHOWING");
+  const showcase = movies ? liveShowcase(nowShowing) : [];
+  const mobileHero = showcase.find((slide) => slide.title === PREFERRED_MOBILE_HERO) ?? showcase[0];
+  const heroMovie = mobileHero?.movie;
+  const heroHref = heroMovie ? `/movies/${heroMovie.id}` : "/movies";
+  const featuredMovie = nowShowing.length > 0 ? topRated(nowShowing) : undefined;
+  const posterMovies = nowShowing.slice(0, 10);
+  const mobilePosterGroups = chunk(nowShowing, 4);
+  const catalogueError = error && !movies ? error : null;
+
+  const bookingTools: { title: string; body: string; icon: LucideIcon; href: string }[] = [
+    { title: "Browse showtimes", body: "Start with the movie list and jump straight to a session.", icon: Film, href: "/movies" },
+    {
+      title: "Lock seats",
+      body: "Choose the exact chairs before checkout starts.",
+      icon: LockKeyhole,
+      href: featuredMovie ? `/movies/${featuredMovie.id}` : "/movies",
+    },
+    { title: "Booking history", body: "Check paid bookings and saved confirmations.", icon: Ticket, href: "/bookings" },
+  ];
+
   return (
     <AppShell>
       <section className="md:hidden">
-        <Link href={`/movies/${mobileHeroMovie.id}`} className="group relative block min-h-[470px] overflow-hidden">
+        <Link href={heroHref} className="group relative block min-h-[470px] overflow-hidden">
           <Image
-            src="/posters/dark-knight-hero-hd.jpg"
-            alt={`${mobileHeroMovie.title} cinema artwork`}
+            src={mobileHero?.image ?? (movies ? FALLBACK_ARTWORK : preferredHeroArtwork)}
+            alt={heroMovie ? `${heroMovie.title} cinema artwork` : "Cinema artwork"}
             fill
             priority
             sizes="100vw"
@@ -52,25 +79,29 @@ export default function Home() {
           />
           <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(13,15,18,0.04)_0%,rgba(13,15,18,0.16)_35%,rgba(13,15,18,0.94)_86%,#0d0f12_100%)]" />
           <div className="absolute inset-x-0 bottom-0 px-4 pb-5">
-            <p className="mb-2 font-mono text-[11px] font-semibold uppercase text-accent">Tonight&apos;s pick</p>
-            <h1 className="max-w-[12ch] text-4xl font-semibold leading-none text-foreground">{mobileHeroMovie.title}</h1>
-            <div className="mt-3 flex items-center gap-3 text-xs text-foreground/78">
-              <span>{mobileHeroMovie.rating}</span>
-              <span>{mobileHeroMovie.durationMinutes} min</span>
-              <span>IMDb {mobileHeroMovie.imdbRating?.toFixed(1)}</span>
-            </div>
+            <p className="mb-2 font-mono text-[11px] font-semibold uppercase text-accent">
+              {heroMovie ? "Tonight’s pick" : "Now booking"}
+            </p>
+            <h1 className="max-w-[12ch] text-4xl font-semibold leading-none text-foreground">{heroMovie?.title ?? "Cinema"}</h1>
+            {heroMovie ? (
+              <div className="mt-3 flex items-center gap-3 text-xs text-foreground/78">
+                <span>{heroMovie.rating}</span>
+                <span>{heroMovie.durationMinutes} min</span>
+                {heroMovie.imdbRating ? <span>IMDb {Number(heroMovie.imdbRating).toFixed(1)}</span> : null}
+              </div>
+            ) : null}
           </div>
         </Link>
 
         <div className="-mt-1 px-4">
-          <div className="flex justify-center gap-2 py-4" aria-hidden>
-            {demoMovies.slice(0, 9).map((movie, index) => (
-              <span key={movie.id} className={`size-2 rounded-full ${index === 2 ? "bg-accent-strong" : "bg-foreground/35"}`} />
+          <div className="flex min-h-10 justify-center gap-2 py-4" aria-hidden>
+            {nowShowing.slice(0, 9).map((movie) => (
+              <span key={movie.id} className={`size-2 rounded-full ${movie.id === heroMovie?.id ? "bg-accent-strong" : "bg-foreground/35"}`} />
             ))}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <Link
-              href={`/movies/${mobileHeroMovie.id}`}
+              href={heroHref}
               className="flex min-h-14 items-center justify-center rounded-[1.25rem] border-2 border-foreground px-3 text-base font-medium text-foreground active:scale-[0.98]"
             >
               Showtimes
@@ -91,6 +122,17 @@ export default function Home() {
             <span className="pb-3 text-2xl font-medium uppercase text-muted">Kids</span>
             <span className="pb-3 text-2xl font-medium uppercase text-muted">Coming soon</span>
           </div>
+          {catalogueError ? (
+            <ErrorState className="mt-6" title="We couldn't load what's showing" message={catalogueError.message} onRetry={reload} retrying={loading} />
+          ) : null}
+          {!movies && !catalogueError ? (
+            <div role="status" aria-label="Loading movies" className="mt-6 grid grid-cols-2 gap-4">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <div key={index} className="aspect-[2/3] animate-pulse rounded-lg border-2 border-line bg-panel" />
+              ))}
+            </div>
+          ) : null}
+          {movies && nowShowing.length === 0 ? <NoMoviesYet className="mt-6" /> : null}
           <div className="-mx-4 mt-6 overflow-hidden">
             <div className="cinema-scrollbar-none flex snap-x snap-mandatory gap-4 overflow-x-auto scroll-smooth px-4 pb-2">
               {mobilePosterGroups.map((group) => (
@@ -102,7 +144,7 @@ export default function Home() {
                       className="overflow-hidden rounded-lg border-2 border-foreground/85 bg-[#111316] active:scale-[0.98]"
                     >
                       <div className="relative aspect-[2/3] bg-panel">
-                        <Image src={movie.posterUrl || "/cinema-hero.png"} alt={movie.title} fill sizes="50vw" className="object-cover" />
+                        <PosterImage src={posterFor(movie)} alt={movie.title} fill sizes="50vw" className="object-cover" />
                       </div>
                       <div className="grid min-h-[92px] place-items-center px-3 py-4 text-center">
                         <h3 className="line-clamp-2 text-base font-semibold leading-6">{movie.title}</h3>
@@ -171,29 +213,42 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="mx-auto hidden max-w-7xl gap-8 px-4 py-14 sm:px-6 lg:grid lg:grid-cols-[360px_1fr]">
-        <div className="relative min-h-[520px] overflow-hidden rounded-lg border border-line bg-panel">
-          <Image src={featuredMovie.posterUrl || "/cinema-hero.png"} alt={featuredMovie.title} fill sizes="360px" className="object-cover" />
-        </div>
-        <div className="flex flex-col justify-center">
-          <p className="font-mono text-xs uppercase text-accent">Top IMDb pick</p>
-          <h2 className="mt-3 text-4xl font-semibold sm:text-5xl">{featuredMovie.title}</h2>
-          <p className="mt-4 max-w-2xl text-lg leading-8 text-muted">{featuredMovie.description}</p>
-          <div className="mt-5 flex flex-wrap gap-3 text-sm text-muted">
-            <span>{featuredMovie.genre}</span>
-            <span>{featuredMovie.rating}</span>
-            <span>{featuredMovie.durationMinutes} minutes</span>
-            {featuredMovie.imdbRating ? <span className="text-accent">IMDb {featuredMovie.imdbRating.toFixed(1)}</span> : null}
+      {!movies && !catalogueError ? (
+        <section className="mx-auto hidden max-w-7xl gap-8 px-4 py-14 sm:px-6 lg:grid lg:grid-cols-[360px_1fr]" aria-hidden>
+          <div className="min-h-[520px] animate-pulse rounded-lg border border-line bg-panel" />
+          <div className="flex flex-col justify-center gap-4">
+            <div className="h-4 w-32 animate-pulse rounded-md bg-panel" />
+            <div className="h-12 max-w-lg animate-pulse rounded-md bg-panel" />
+            <div className="h-20 max-w-2xl animate-pulse rounded-md bg-panel" />
           </div>
-          <Link
-            href={`/movies/${featuredMovie.id}`}
-            className="mt-8 flex w-fit items-center gap-2 rounded-md bg-accent px-5 py-3 text-sm font-semibold text-background"
-          >
-            View showtimes
-            <ArrowRight size={18} aria-hidden />
-          </Link>
-        </div>
-      </section>
+        </section>
+      ) : null}
+
+      {featuredMovie ? (
+        <section className="mx-auto hidden max-w-7xl gap-8 px-4 py-14 sm:px-6 lg:grid lg:grid-cols-[360px_1fr]">
+          <div className="relative min-h-[520px] overflow-hidden rounded-lg border border-line bg-panel">
+            <PosterImage src={posterFor(featuredMovie)} alt={featuredMovie.title} fill sizes="360px" className="object-cover" />
+          </div>
+          <div className="flex flex-col justify-center">
+            <p className="font-mono text-xs uppercase text-accent">Top IMDb pick</p>
+            <h2 className="mt-3 text-4xl font-semibold sm:text-5xl">{featuredMovie.title}</h2>
+            <p className="mt-4 max-w-2xl text-lg leading-8 text-muted">{featuredMovie.description}</p>
+            <div className="mt-5 flex flex-wrap gap-3 text-sm text-muted">
+              <span>{featuredMovie.genre}</span>
+              <span>{featuredMovie.rating}</span>
+              <span>{featuredMovie.durationMinutes} minutes</span>
+              {featuredMovie.imdbRating ? <span className="text-accent">IMDb {Number(featuredMovie.imdbRating).toFixed(1)}</span> : null}
+            </div>
+            <Link
+              href={`/movies/${featuredMovie.id}`}
+              className="mt-8 flex w-fit items-center gap-2 rounded-md bg-accent px-5 py-3 text-sm font-semibold text-background"
+            >
+              View showtimes
+              <ArrowRight size={18} aria-hidden />
+            </Link>
+          </div>
+        </section>
+      ) : null}
 
       <section className="mx-auto hidden max-w-7xl px-4 py-10 sm:px-6 md:block md:py-14">
         <div className="mb-6 flex items-end justify-between gap-4">
@@ -206,6 +261,20 @@ export default function Home() {
             <ArrowRight size={16} aria-hidden />
           </Link>
         </div>
+        {catalogueError ? (
+          <ErrorState title="We couldn't load what's showing" message={catalogueError.message} onRetry={reload} retrying={loading} />
+        ) : null}
+        {!movies && !catalogueError ? (
+          <div role="status" aria-label="Loading movies" className="flex gap-3 overflow-hidden">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <div
+                key={index}
+                className="aspect-[2/3] shrink-0 basis-[calc((100%_-_0.75rem)/2)] animate-pulse rounded-lg border border-line bg-panel md:basis-[calc((100%_-_1.5rem)/3)] lg:basis-[calc((100%_-_2.25rem)/4)]"
+              />
+            ))}
+          </div>
+        ) : null}
+        {movies && nowShowing.length === 0 ? <NoMoviesYet /> : null}
         <div className="cinema-scrollbar-none overflow-x-auto scroll-smooth pb-2">
           <div className="flex snap-x snap-mandatory gap-3">
             {posterMovies.map((movie) => (
@@ -214,18 +283,20 @@ export default function Home() {
                 href={`/movies/${movie.id}`}
                 className="group shrink-0 basis-[calc((100%_-_0.75rem)/2)] snap-start overflow-hidden rounded-lg border border-line bg-panel md:basis-[calc((100%_-_1.5rem)/3)] lg:basis-[calc((100%_-_2.25rem)/4)]"
               >
-              <div className="relative aspect-[2/3] bg-background">
-                <Image
-                  src={movie.posterUrl || "/cinema-hero.png"}
-                  alt={movie.title}
-                  fill
+                <div className="relative aspect-[2/3] bg-background">
+                  <PosterImage
+                    src={posterFor(movie)}
+                    alt={movie.title}
+                    fill
                     sizes="(max-width: 1024px) 33vw, 25vw"
                     className="object-cover transition group-hover:scale-[1.03]"
-                />
-              </div>
+                  />
+                </div>
                 <div className="flex min-h-[96px] flex-col justify-center p-3 text-center md:min-h-[110px] md:p-4">
                   <h3 className="line-clamp-2 text-base font-semibold leading-6 md:text-lg">{movie.title}</h3>
-                  <p className="mt-2 text-sm font-semibold text-accent">IMDb {movie.imdbRating?.toFixed(1)}</p>
+                  {movie.imdbRating ? (
+                    <p className="mt-2 text-sm font-semibold text-accent">IMDb {Number(movie.imdbRating).toFixed(1)}</p>
+                  ) : null}
                 </div>
               </Link>
             ))}
@@ -302,5 +373,18 @@ export default function Home() {
         </div>
       </section>
     </AppShell>
+  );
+}
+
+function NoMoviesYet({ className = "" }: { className?: string }) {
+  return (
+    <div className={`rounded-lg border border-dashed border-line bg-panel p-6 text-center ${className}`}>
+      <p className="font-semibold">No movies on sale right now</p>
+      <p className="mt-1 text-sm text-muted">New sessions are added regularly. Check the full movie board for what is coming soon.</p>
+      <Link href="/movies" className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-accent">
+        Browse all movies
+        <ArrowRight size={16} aria-hidden />
+      </Link>
+    </div>
   );
 }

@@ -3,13 +3,15 @@
 import Image from "next/image";
 import Link from "next/link";
 import { CalendarDays, ChevronLeft, ChevronRight } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { AppShell } from "@/components/AppShell";
+import { ErrorState } from "@/components/Feedback";
+import { PosterImage } from "@/components/PosterImage";
 import { StatusBadge } from "@/components/StatusBadge";
-import { apiFetch } from "@/lib/api";
-import { demoMovies } from "@/lib/demo-data";
+import { FALLBACK_ARTWORK, liveShowcase, posterFor, showcaseSlides, type ShowcaseSlide } from "@/lib/showcase";
 import type { Movie } from "@/lib/types";
+import { useApiQuery } from "@/lib/useApiQuery";
 
 type MovieTab = "NOW_SHOWING" | "KIDS" | "COMING_SOON";
 
@@ -19,50 +21,16 @@ const movieTabs: { id: MovieTab; label: string }[] = [
   { id: "COMING_SOON", label: "Coming soon" },
 ];
 
-const heroSlides = [
-  {
-    title: "The Shawshank Redemption",
-    eyebrow: "Top IMDb-rated release",
-    description: "A sharp prison-drama classic with the same showtime and chair selection flow.",
-    href: "/movies/the-shawshank-redemption",
-    image: "/posters/shawshank-hero-hd.jpg",
-  },
-  {
-    title: "The Godfather",
-    eyebrow: "Crime drama classic",
-    description: "Browse the Corleone family epic, then continue into live showtimes and seat locking.",
-    href: "/movies/the-godfather",
-    image: "/posters/godfather-hero-hd.jpg",
-  },
-  {
-    title: "The Dark Knight",
-    eyebrow: "Action crime feature",
-    description: "Pick a Gotham showtime, choose your chair, and finish checkout from one flow.",
-    href: "/movies/the-dark-knight",
-    image: "/posters/dark-knight-hero-hd.jpg",
-  },
-  {
-    title: "The Return of the King",
-    eyebrow: "Fantasy adventure",
-    description: "A big-screen journey with premium seats, real poster art, and fast booking.",
-    href: "/movies/the-return-of-the-king",
-    image: "/posters/return-king-hero-hd.jpg",
-  },
-  {
-    title: "Pulp Fiction",
-    eyebrow: "Cult crime classic",
-    description: "Jump into a sharp Los Angeles crime story and reserve seats from the same carousel.",
-    href: "/movies/pulp-fiction",
-    image: "/posters/pulp-fiction-hero-hd.png",
-  },
-  {
-    title: "The Good, the Bad and the Ugly",
-    eyebrow: "Western landmark",
-    description: "A widescreen classic with real poster art, showtimes, and quick chair selection.",
-    href: "/movies/the-good-the-bad-and-the-ugly",
-    image: "/posters/good-bad-ugly-hero-hd.jpg",
-  },
-];
+// A null href means "not linked to a live movie yet": each hero points it at its own movie list.
+type HeroSlide = ShowcaseSlide & { href: string | null };
+
+const genericSlide: HeroSlide = {
+  title: "Now showing",
+  eyebrow: "Cinema",
+  description: "Browse the current catalogue, pick a session, and choose your seats.",
+  image: FALLBACK_ARTWORK,
+  href: null,
+};
 
 function isKidsMovie(movie: Movie) {
   const categoryText = `${movie.title} ${movie.genre}`.toLowerCase();
@@ -78,32 +46,35 @@ function chunk<T>(items: T[], size: number): T[][] {
 }
 
 export default function MoviesPage() {
-  const [movies, setMovies] = useState<Movie[]>([]);
-  const [error, setError] = useState("");
+  const { data: movies, error, loading, reload } = useApiQuery<Movie[]>("/movies");
   const [activeTab, setActiveTab] = useState<MovieTab>("NOW_SHOWING");
-  const [activeHeroIndex, setActiveHeroIndex] = useState(0);
+  const [heroCursor, setHeroCursor] = useState(0);
   const movieRowRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    apiFetch<Movie[]>("/movies")
-      .then(setMovies)
-      .catch(() => {
-        setMovies(demoMovies);
-        setError("Showing the demo catalog until the backend API is running.");
-      });
-  }, []);
+  // Until the catalogue arrives the curated artwork shows unlinked; once it does, only titles
+  // that are really on sale stay in the carousel and link to their live movie page.
+  const heroSlides = useMemo<HeroSlide[]>(() => {
+    if (!movies) return showcaseSlides.map((slide) => ({ ...slide, href: null }));
+    const live = liveShowcase(movies).map(({ movie, ...slide }) => ({ ...slide, href: `/movies/${movie.id}` }));
+    return live.length > 0 ? live : [genericSlide];
+  }, [movies]);
+  const slideCount = heroSlides.length;
+  const activeHeroIndex = heroCursor % slideCount;
 
   useEffect(() => {
+    if (slideCount < 2) return undefined;
     const timer = window.setInterval(() => {
-      setActiveHeroIndex((current) => (current + 1) % heroSlides.length);
+      setHeroCursor((current) => (current + 1) % slideCount);
     }, 3000);
 
     return () => window.clearInterval(timer);
-  }, []);
+  }, [slideCount]);
 
   const activeHero = heroSlides[activeHeroIndex];
+  const mobileHeroHref = activeHero.href ?? "#movie-list-mobile";
+  const desktopHeroHref = activeHero.href ?? "#movie-list";
 
-  const visibleMovies = movies.filter((movie) => {
+  const visibleMovies = (movies ?? []).filter((movie) => {
     if (activeTab === "KIDS") {
       return isKidsMovie(movie);
     }
@@ -128,7 +99,7 @@ export default function MoviesPage() {
   return (
     <AppShell>
       <section className="md:hidden">
-        <Link href={activeHero.href} className="group relative block min-h-[410px] overflow-hidden">
+        <Link href={mobileHeroHref} className="group relative block min-h-[410px] overflow-hidden">
           <Image
             src={activeHero.image}
             alt={`${activeHero.title} cinema artwork`}
@@ -146,26 +117,27 @@ export default function MoviesPage() {
         </Link>
 
         <div className="px-4">
-          <div className="flex justify-center gap-2 py-4" aria-hidden>
+          <div className="flex justify-center gap-2 py-4">
             {heroSlides.map((slide, index) => (
               <button
                 key={slide.title}
                 type="button"
                 aria-label={`Show ${slide.title}`}
-                onClick={() => setActiveHeroIndex(index)}
+                aria-pressed={index === activeHeroIndex}
+                onClick={() => setHeroCursor(index)}
                 className={`size-2 rounded-full ${index === activeHeroIndex ? "bg-accent-strong" : "bg-foreground/35"}`}
               />
             ))}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <Link
-              href={activeHero.href}
+              href={mobileHeroHref}
               className="flex min-h-14 items-center justify-center rounded-[1.25rem] border-2 border-foreground px-3 text-base font-medium text-foreground active:scale-[0.98]"
             >
               Details
             </Link>
             <Link
-              href={activeHero.href}
+              href={mobileHeroHref}
               className="flex min-h-14 items-center justify-center gap-2 rounded-[1.25rem] bg-[linear-gradient(90deg,#ff4a2f,#c9172b)] px-3 text-base font-semibold text-white active:scale-[0.98]"
             >
               Book now
@@ -174,7 +146,7 @@ export default function MoviesPage() {
           </div>
         </div>
 
-        <section className="px-4 pb-5 pt-8">
+        <section id="movie-list-mobile" className="scroll-mt-20 px-4 pb-5 pt-8">
           <h2 className="text-center text-4xl font-light leading-tight text-foreground">Movie Showtimes</h2>
           <div className="cinema-scrollbar-none mt-7 flex gap-8 overflow-x-auto whitespace-nowrap">
             {movieTabs.map((movieTab) => {
@@ -194,7 +166,10 @@ export default function MoviesPage() {
               );
             })}
           </div>
-          {error && <p className="mt-5 rounded-md border border-accent/40 bg-accent/10 p-4 text-sm text-accent">{error}</p>}
+          {error && !movies ? (
+            <ErrorState className="mt-6" title="We couldn't load the movies" message={error.message} onRetry={reload} retrying={loading} />
+          ) : null}
+          {!movies && !error ? <MobilePosterSkeleton /> : null}
           <div className="-mx-4 mt-6 overflow-hidden">
             <div className="cinema-scrollbar-none flex snap-x snap-mandatory gap-4 overflow-x-auto scroll-smooth px-4 pb-2">
               {mobileMovieGroups.map((group) => (
@@ -206,14 +181,7 @@ export default function MoviesPage() {
                       className="overflow-hidden rounded-lg border-2 border-foreground/85 bg-[#111316] active:scale-[0.98]"
                     >
                       <div className="relative aspect-[2/3] bg-panel">
-                        <Image
-                          src={movie.posterUrl || "/cinema-hero.png"}
-                          alt={movie.title}
-                          fill
-                          quality={92}
-                          sizes="50vw"
-                          className="object-cover"
-                        />
+                        <PosterImage src={posterFor(movie)} alt={movie.title} fill quality={92} sizes="50vw" className="object-cover" />
                         <div className="absolute left-2 top-2">
                           <StatusBadge status={movie.status} />
                         </div>
@@ -232,7 +200,9 @@ export default function MoviesPage() {
               </p>
             )}
           </div>
-          {visibleMovies.length === 0 && <p className="mt-6 rounded-md border border-dashed border-line p-5 text-center text-sm text-muted">No movies in this section yet.</p>}
+          {movies && visibleMovies.length === 0 && (
+            <p className="mt-6 rounded-md border border-dashed border-line p-5 text-center text-sm text-muted">No movies in this section yet.</p>
+          )}
         </section>
       </section>
 
@@ -250,7 +220,7 @@ export default function MoviesPage() {
           <p className="font-mono text-xs uppercase text-accent">{activeHero.eyebrow}</p>
           <h1 className="mt-3 max-w-3xl text-5xl font-semibold sm:text-7xl">{activeHero.title}</h1>
           <p className="mt-5 max-w-2xl text-lg leading-8 text-muted">{activeHero.description}</p>
-          <Link href={activeHero.href} className="mt-8 flex w-fit items-center gap-2 rounded-md bg-accent px-5 py-3 text-sm font-semibold text-background">
+          <Link href={desktopHeroHref} className="mt-8 flex w-fit items-center gap-2 rounded-md bg-accent px-5 py-3 text-sm font-semibold text-background">
             See showtimes
             <CalendarDays size={17} aria-hidden />
           </Link>
@@ -260,14 +230,15 @@ export default function MoviesPage() {
                 key={slide.title}
                 type="button"
                 aria-label={`Show ${slide.title}`}
-                onClick={() => setActiveHeroIndex(index)}
+                aria-pressed={index === activeHeroIndex}
+                onClick={() => setHeroCursor(index)}
                 className={`h-2.5 rounded-full ${index === activeHeroIndex ? "w-9 bg-accent" : "w-2.5 bg-foreground/35 hover:bg-foreground/70"}`}
               />
             ))}
           </div>
         </div>
       </section>
-      <section className="relative hidden overflow-hidden border-b border-line bg-background py-10 md:block">
+      <section id="movie-list" className="relative hidden scroll-mt-20 overflow-hidden border-b border-line bg-background py-10 md:block">
         <div className="mx-auto max-w-[1540px] px-4 sm:px-6">
           <div className="mb-8 flex flex-col justify-between gap-5 lg:flex-row lg:items-start">
             <div className="flex min-w-0 flex-wrap items-center gap-x-8 gap-y-3">
@@ -298,11 +269,17 @@ export default function MoviesPage() {
             </Link>
           </div>
         </div>
-        {error && (
+        {error && !movies ? (
           <div className="mx-auto mb-5 max-w-[1540px] px-4 sm:px-6">
-            <p className="rounded-md border border-accent/40 bg-accent/10 p-4 text-accent">{error}</p>
+            <ErrorState title="We couldn't load the movies" message={error.message} onRetry={reload} retrying={loading} />
           </div>
-        )}
+        ) : null}
+        {!movies && !error ? <DesktopPosterSkeleton /> : null}
+        {movies && visibleMovies.length === 0 ? (
+          <div className="mx-auto mb-5 max-w-[1540px] px-4 sm:px-6">
+            <p className="rounded-md border border-dashed border-line p-5 text-center text-sm text-muted">No movies in this section yet.</p>
+          </div>
+        ) : null}
         <div className="relative">
           <div ref={movieRowRef} className="cinema-scrollbar-none overflow-x-auto scroll-smooth px-4 pb-4 sm:px-6">
             <div className="flex w-max snap-x snap-mandatory gap-5 pr-20">
@@ -313,8 +290,8 @@ export default function MoviesPage() {
                   className="group w-[230px] shrink-0 snap-start overflow-hidden rounded-lg border border-accent-strong/55 bg-panel shadow-[0_18px_40px_rgba(0,0,0,0.28)] sm:w-[260px] lg:w-[286px]"
                 >
                   <div className="relative aspect-[2/3] bg-background">
-                    <Image
-                      src={movie.posterUrl || "/cinema-hero.png"}
+                    <PosterImage
+                      src={posterFor(movie)}
                       alt={movie.title}
                       fill
                       quality={92}
@@ -363,5 +340,25 @@ export default function MoviesPage() {
         </div>
       </section>
     </AppShell>
+  );
+}
+
+function MobilePosterSkeleton() {
+  return (
+    <div role="status" aria-label="Loading movies" className="mt-6 grid grid-cols-2 gap-4">
+      {Array.from({ length: 4 }).map((_, index) => (
+        <div key={index} className="aspect-[2/3] animate-pulse rounded-lg border-2 border-line bg-panel" />
+      ))}
+    </div>
+  );
+}
+
+function DesktopPosterSkeleton() {
+  return (
+    <div role="status" aria-label="Loading movies" className="flex gap-5 overflow-hidden px-4 pb-4 sm:px-6">
+      {Array.from({ length: 5 }).map((_, index) => (
+        <div key={index} className="aspect-[2/3] w-[230px] shrink-0 animate-pulse rounded-lg border border-line bg-panel sm:w-[260px] lg:w-[286px]" />
+      ))}
+    </div>
   );
 }

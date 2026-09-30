@@ -4,29 +4,22 @@ import Image from "next/image";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { ArrowLeft, CalendarDays, Clock3, MapPin, Ticket } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { AppShell } from "@/components/AppShell";
-import { apiFetch } from "@/lib/api";
-import { findDemoMovie, findDemoShowtimes } from "@/lib/demo-data";
+import { ErrorState } from "@/components/Feedback";
+import { ApiError, apiFetch } from "@/lib/api";
+import { backdropFor, skipImageOptimization } from "@/lib/showcase";
 import type { Movie, Showtime } from "@/lib/types";
+import { useApiQuery } from "@/lib/useApiQuery";
 
-const detailBackdrops: Record<string, string> = {
-  "the shawshank redemption": "/posters/shawshank-hero-hd.jpg",
-  "the godfather": "/posters/godfather-hero-hd.jpg",
-  "the dark knight": "/posters/dark-knight-hero-hd.jpg",
-  "the lord of the rings: the return of the king": "/posters/return-king-hero-hd.jpg",
-  "pulp fiction": "/posters/pulp-fiction-hero-hd.png",
-  "the good, the bad and the ugly": "/posters/good-bad-ugly-hero-hd.jpg",
-};
-
-function titleKey(value: string) {
-  return value.trim().toLowerCase();
+async function loadMovie(idOrSlug: string) {
+  const movie = await apiFetch<Movie>(`/movies/${idOrSlug}`);
+  const showtimes = await apiFetch<Showtime[]>(`/showtimes?movieId=${movie.id}`);
+  return { movie, showtimes };
 }
 
-function movieBackdrop(movie: Movie) {
-  return detailBackdrops[titleKey(movie.title)] ?? movie.posterUrl ?? "/cinema-hero.png";
-}
+const noShowtimes: Showtime[] = [];
 
 function statusLabel(status: Movie["status"]) {
   return status.replace("_", " ").toLowerCase();
@@ -69,52 +62,29 @@ function buildDateTabs(showtimes: Showtime[]) {
 
 export default function MovieDetailPage() {
   const params = useParams<{ id: string }>();
-  const [movie, setMovie] = useState<Movie | null>(null);
-  const [showtimes, setShowtimes] = useState<Showtime[]>([]);
-  const [error, setError] = useState("");
+  const { data, error, loading, reload } = useApiQuery(params.id, loadMovie);
   const [selectedDate, setSelectedDate] = useState("");
+  const movie = data?.movie ?? null;
+  const showtimes = data?.showtimes ?? noShowtimes;
+  const notFound = error instanceof ApiError && error.status === 404;
 
   const dateTabs = useMemo(() => buildDateTabs(showtimes), [showtimes]);
-  const activeDate = selectedDate || dateTabs[0]?.key || "";
+  const activeDate = dateTabs.some((tab) => tab.key === selectedDate) ? selectedDate : dateTabs[0]?.key ?? "";
   const visibleShowtimes = showtimes.filter((showtime) => localDateKey(showtime.startTime) === activeDate);
-
-  useEffect(() => {
-    async function loadMovie() {
-      setError("");
-      try {
-        const movieResponse = await apiFetch<Movie>(`/movies/${params.id}`);
-        const showtimeResponse = await apiFetch<Showtime[]>(`/showtimes?movieId=${movieResponse.id}`);
-        setMovie(movieResponse);
-        setShowtimes(showtimeResponse);
-        setSelectedDate(showtimeResponse[0] ? localDateKey(showtimeResponse[0].startTime) : "");
-      } catch (err) {
-        const fallbackMovie = findDemoMovie(params.id);
-        if (fallbackMovie) {
-          const fallbackShowtimes = findDemoShowtimes(params.id);
-          setMovie(fallbackMovie);
-          setShowtimes(fallbackShowtimes);
-          setSelectedDate(fallbackShowtimes[0] ? localDateKey(fallbackShowtimes[0].startTime) : "");
-          setError("Showing local demo showtimes because this movie could not be loaded from the backend.");
-          return;
-        }
-        setError(err instanceof Error ? err.message : "Movie request failed.");
-      }
-    }
-
-    void loadMovie();
-  }, [params.id]);
+  const backdrop = movie ? backdropFor(movie) : null;
 
   return (
     <AppShell>
       <section className="relative min-h-[calc(100dvh-66px)] overflow-hidden border-b border-line bg-background">
-        {movie ? (
+        {movie && backdrop ? (
           <Image
-            src={movieBackdrop(movie)}
+            src={backdrop}
             alt={`${movie.title} cinema backdrop`}
             fill
             priority
             quality={96}
             sizes="100vw"
+            unoptimized={skipImageOptimization(backdrop)}
             className="object-cover object-center"
           />
         ) : null}
@@ -128,8 +98,18 @@ export default function MovieDetailPage() {
             Back
           </Link>
 
-          {error ? (
-            <p className="mt-6 max-w-xl rounded-md border border-danger/30 bg-background/75 p-3 text-sm text-danger">{error}</p>
+          {error && !movie ? (
+            <ErrorState
+              className="mt-6 max-w-xl bg-background/75"
+              title={notFound ? "We couldn't find this movie" : "We couldn't load this movie"}
+              message={notFound ? "It may have been taken off sale. Browse what is showing now instead." : error.message}
+              onRetry={notFound ? undefined : reload}
+              retrying={loading}
+            >
+              <Link href="/movies" className="text-sm font-semibold text-muted hover:text-accent">
+                Browse movies
+              </Link>
+            </ErrorState>
           ) : null}
 
           {movie ? (
@@ -164,13 +144,14 @@ export default function MovieDetailPage() {
                 {movie.description}
               </p>
 
-              <div className="mt-12 flex max-w-3xl gap-8 overflow-x-auto pb-2 cinema-scrollbar-none" aria-label="Select show date">
+              <div className="mt-12 flex max-w-3xl gap-8 overflow-x-auto pb-2 cinema-scrollbar-none" role="group" aria-label="Select show date">
                 {dateTabs.map((tab) => {
                   const active = tab.key === activeDate;
                   return (
                     <button
                       type="button"
                       key={tab.key}
+                      aria-pressed={active}
                       onClick={() => setSelectedDate(tab.key)}
                       className={`min-w-24 border-b-4 pb-2 text-left transition duration-300 ${
                         active ? "border-accent-strong text-foreground" : "border-transparent text-muted hover:text-foreground"
@@ -183,11 +164,11 @@ export default function MovieDetailPage() {
                 })}
               </div>
             </div>
-          ) : (
-            <div className="mt-auto max-w-4xl pb-16 pt-24">
-              <div className="h-5 w-36 rounded-md bg-panel" />
-              <div className="mt-5 h-20 max-w-3xl rounded-md bg-panel" />
-              <div className="mt-5 h-6 max-w-xl rounded-md bg-panel" />
+          ) : error ? null : (
+            <div role="status" aria-label="Loading movie" className="mt-auto max-w-4xl pb-16 pt-24">
+              <div className="h-5 w-36 animate-pulse rounded-md bg-panel" />
+              <div className="mt-5 h-20 max-w-3xl animate-pulse rounded-md bg-panel" />
+              <div className="mt-5 h-6 max-w-xl animate-pulse rounded-md bg-panel" />
             </div>
           )}
         </div>
