@@ -3,6 +3,7 @@ package com.cinema.booking;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -14,6 +15,7 @@ import java.util.List;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.data.redis.core.script.RedisScript;
@@ -54,18 +56,49 @@ class SeatLockServiceTest {
     }
 
     @Test
-    void shouldNotReportSeatLockedByOtherWhenTheBookingItselfHoldsIt() {
-        when(redis.opsForValue()).thenReturn(values);
-        when(values.get(service.key(showtimeId, seatA))).thenReturn(bookingId.toString());
+    void reportsSeatsAsUnlockedWhenRedisIsDown() {
+        when(redis.hasKey(anyString())).thenThrow(new RedisConnectionFailureException("Redis is down"));
 
-        assertThat(service.isLockedByOther(showtimeId, seatA, bookingId)).isFalse();
+        assertThat(service.isLocked(showtimeId, seatA)).isFalse();
     }
 
     @Test
-    void shouldReportSeatLockedByOtherWhenAnotherBookingHoldsIt() {
-        when(redis.opsForValue()).thenReturn(values);
-        when(values.get(service.key(showtimeId, seatA))).thenReturn(UUID.randomUUID().toString());
+    void treatsLocksAsAcquiredWhenRedisIsDown() {
+        when(redis.opsForValue()).thenThrow(new RedisConnectionFailureException("Redis is down"));
 
-        assertThat(service.isLockedByOther(showtimeId, seatA, bookingId)).isTrue();
+        List<String> acquired = service.lock(showtimeId, List.of(seatA, seatB), bookingId, Duration.ofMinutes(5));
+
+        assertThat(acquired).containsExactly(service.key(showtimeId, seatA), service.key(showtimeId, seatB));
+    }
+
+    @Test
+    void treatsLocksAsAcquiredWhenRedisFailsPartWayThrough() {
+        when(redis.opsForValue()).thenReturn(values);
+        when(values.setIfAbsent(eq(service.key(showtimeId, seatA)), eq(bookingId.toString()), any(Duration.class))).thenReturn(true);
+        when(values.setIfAbsent(eq(service.key(showtimeId, seatB)), eq(bookingId.toString()), any(Duration.class)))
+                .thenThrow(new RedisConnectionFailureException("Redis is down"));
+
+        List<String> acquired = service.lock(showtimeId, List.of(seatA, seatB), bookingId, Duration.ofMinutes(5));
+
+        assertThat(acquired).containsExactly(service.key(showtimeId, seatA), service.key(showtimeId, seatB));
+    }
+
+    @Test
+    void stillRefusesTheLockWhenAnotherBookingHoldsASeatAndTheRollbackFails() {
+        when(redis.opsForValue()).thenReturn(values);
+        when(values.setIfAbsent(eq(service.key(showtimeId, seatA)), eq(bookingId.toString()), any(Duration.class))).thenReturn(true);
+        when(values.setIfAbsent(eq(service.key(showtimeId, seatB)), eq(bookingId.toString()), any(Duration.class))).thenReturn(false);
+        when(redis.execute(any(RedisScript.class), anyList(), eq(bookingId.toString())))
+                .thenThrow(new RedisConnectionFailureException("Redis is down"));
+
+        assertThat(service.lock(showtimeId, List.of(seatA, seatB), bookingId, Duration.ofMinutes(5))).isEmpty();
+    }
+
+    @Test
+    void releasesNothingWhenRedisIsDown() {
+        when(redis.execute(any(RedisScript.class), anyList(), eq(bookingId.toString())))
+                .thenThrow(new RedisConnectionFailureException("Redis is down"));
+
+        assertThat(service.release(showtimeId, List.of(seatA, seatB), bookingId)).isZero();
     }
 }
