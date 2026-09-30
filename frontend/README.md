@@ -1,36 +1,47 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Cinema frontend
 
-## Getting Started
+Next.js App Router client for the cinema booking API: browsing, live seat selection, checkout, tickets, the staff scanner, and the admin console.
 
-First, run the development server:
+## Scripts
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm ci            # install exactly what package-lock.json pins
+npm run dev       # dev server on http://localhost:3000
+npm run lint      # ESLint (Next core-web-vitals + TypeScript rules)
+npm test          # Vitest + React Testing Library, jsdom
+npm run build     # production build (standalone output, used by the Dockerfile)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Node 22.22.2 or newer is required (`engines` in `package.json`); CI and the Docker image use Node 24.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Configuration
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `NEXT_PUBLIC_API_BASE_URL` | `http://localhost:8080/api` | Inlined into the client bundle **at build time**. Changing it on a running container does nothing; rebuild instead (Compose passes it as a build arg). |
 
-## Learn More
+## Structure
 
-To learn more about Next.js, take a look at the following resources:
+```
+src/app/                 routes (App Router); each page is a client component
+src/components/          shared UI: AppShell, SeatPicker, HoldCountdown, QrScanner, Feedback states
+src/components/admin/    admin console: one module per workspace, shared form/panel primitives,
+                         and useAdminConsole (data loading + actions)
+src/lib/api.ts           fetch wrapper: auth headers, token refresh, idempotency keys, errors
+src/lib/useApiQuery.ts   load-on-mount data hook with error + retry
+src/lib/useLiveSeats.ts  seat-event stream with reconnect/backoff and resync
+src/lib/useTicketPolling.ts  polls for the asynchronously issued ticket
+src/lib/showcase.ts      static hero artwork; which movies exist always comes from the API
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## How the client talks to the API
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- **Sessions.** Access and refresh tokens live in `localStorage`. A `401` triggers one refresh. It is single-flight within a tab and serialised across tabs with the Web Locks API, because refresh tokens rotate and a replayed old token revokes the whole family. The original request is then replayed. If the refresh is rejected, the user is signed out and sent to `/login?next=…`; `next` is only honoured for same-site paths.
+- **Idempotency.** Every mutating request carries an `Idempotency-Key`. Operations where a duplicate costs money reuse one key per logical operation (stored in `sessionStorage`) until they succeed. Those operations are locking seats, starting a payment, the payment callback and cancelling.
+- **Errors.** API errors surface the server's message. Server-side failures also show the request ID ("Reference: …"), which matches the backend logs.
+- **No fake data.** If the API is unreachable, pages show an error with a Retry button rather than falling back to demo content.
+- **Live seats.** The seat map subscribes to `/showtimes/{id}/seat-events` (Server-Sent Events). If the stream drops, it reconnects with capped exponential backoff and re-fetches the seat map, because events sent while disconnected are lost.
 
-## Deploy on Vercel
+## Tests
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Tests sit next to the code as `*.test.ts(x)`: the API client, `SeatPicker` (selection, live events, reconnect), `HoldCountdown`, and the admin sales board. They run in jsdom; `EventSource` and `fetch` are stubbed per test.
