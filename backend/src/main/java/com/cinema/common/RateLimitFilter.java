@@ -30,6 +30,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
     private static final Duration WINDOW = Duration.ofMinutes(1);
     private static final List<String> AUTH_PATHS = List.of("/auth/login", "/auth/register", "/auth/refresh");
     private static final String PAYMENT_PREFIX = "/payments/";
+    private static final String PAYMENT_WEBHOOK_PATH = "/payments/webhook";
 
     private final StringRedisTemplate redis;
     private final ObjectMapper objectMapper;
@@ -74,7 +75,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
         if (AUTH_PATHS.contains(path)) {
             return new Bucket("auth", authLimit);
         }
-        if (path.startsWith(PAYMENT_PREFIX)) {
+        if (path.startsWith(PAYMENT_PREFIX) && !PAYMENT_WEBHOOK_PATH.equals(path)) {
             return new Bucket("payment", paymentLimit);
         }
         return null;
@@ -111,9 +112,8 @@ public class RateLimitFilter extends OncePerRequestFilter {
         response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setHeader(HttpHeaders.RETRY_AFTER, String.valueOf(WINDOW.toSeconds()));
-        objectMapper.writeValue(response.getOutputStream(), new ErrorResponse(Instant.now(),
-                HttpStatus.TOO_MANY_REQUESTS.value(), HttpStatus.TOO_MANY_REQUESTS.getReasonPhrase(),
-                "Too many requests. Please wait a minute and try again."));
+        objectMapper.writeValue(response.getOutputStream(),
+                ErrorResponse.of(HttpStatus.TOO_MANY_REQUESTS, "Too many requests. Please wait a minute and try again."));
     }
 
     private record Bucket(String name, int limit) {

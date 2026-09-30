@@ -1,6 +1,7 @@
 package com.cinema.auth;
 
 import java.io.IOException;
+import java.util.Optional;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -14,6 +15,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
+    static final String INVALID_TOKEN_ATTRIBUTE = JwtAuthenticationFilter.class.getName() + ".invalidToken";
+
     private final JwtService jwtService;
 
     public JwtAuthenticationFilter(JwtService jwtService) {
@@ -25,10 +28,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         String header = request.getHeader("Authorization");
         if (header != null && header.startsWith("Bearer ")) {
-            jwtService.parse(header.substring(7)).ifPresent(user -> {
-                UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(user, null, user.getAuthorities());
+            Optional<AuthUser> user = jwtService.parse(header.substring(7));
+            if (user.isPresent()) {
+                UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(user.get(), null, user.get().getAuthorities());
                 SecurityContextHolder.getContext().setAuthentication(auth);
-            });
+            } else {
+                request.setAttribute(INVALID_TOKEN_ATTRIBUTE, Boolean.TRUE);
+            }
         }
         filterChain.doFilter(request, response);
     }

@@ -26,6 +26,24 @@ server:
   servlet:
     context-path: /api
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState,db
+
+logging:
+  pattern:
+    correlation: "[%X{requestId:-}] "
+
 app:
   jwt:
     secret: ${JWT_SECRET}
@@ -39,13 +57,26 @@ app:
     trust-forwarded-for: ${RATE_LIMIT_TRUST_FORWARDED_FOR:false}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000,http://127.0.0.1:3000}
+  time-zone: ${APP_TIME_ZONE:UTC}
   booking:
     lock-minutes: ${BOOKING_LOCK_MINUTES:5}
     cancel-cutoff-hours: ${BOOKING_CANCEL_CUTOFF_HOURS:2}
+  pricing:
+    premium-surcharge: ${PRICING_PREMIUM_SURCHARGE:4.00}
+  payments:
+    mock-gateway-enabled: ${PAYMENT_MOCK_GATEWAY_ENABLED:true}
+    webhook-secret: ${PAYMENT_WEBHOOK_SECRET:}
+  outbox:
+    max-attempts: ${OUTBOX_MAX_ATTEMPTS:5}
+    retry-backoff-seconds: ${OUTBOX_RETRY_BACKOFF_SECONDS:30}
+  seat-events:
+    max-subscribers-per-showtime: ${SEAT_EVENTS_MAX_SUBSCRIBERS_PER_SHOWTIME:500}
+    heartbeat-millis: 20000
   ticket:
     secret: ${TICKET_SECRET}
   seed:
     demo-users-enabled: ${DEMO_USERS_ENABLED:false}
+    catalog-enabled: ${SEED_CATALOG_ENABLED:false}
     demo-admin-email: ${DEMO_ADMIN_EMAIL:admin@cinema.test}
     demo-admin-password: ${DEMO_ADMIN_PASSWORD:}
     demo-customer-email: ${DEMO_CUSTOMER_EMAIL:customer@cinema.test}
