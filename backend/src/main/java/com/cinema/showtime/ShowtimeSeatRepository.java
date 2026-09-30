@@ -7,12 +7,14 @@ import java.util.UUID;
 
 import jakarta.persistence.LockModeType;
 
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface ShowtimeSeatRepository extends JpaRepository<ShowtimeSeat, UUID> {
+    @EntityGraph(attributePaths = "seat")
     List<ShowtimeSeat> findByShowtimeIdOrderBySeatRowLabelAscSeatSeatNumberAsc(UUID showtimeId);
 
     List<ShowtimeSeat> findByStatusAndLockedUntilBefore(ShowtimeSeatStatus status, Instant now);

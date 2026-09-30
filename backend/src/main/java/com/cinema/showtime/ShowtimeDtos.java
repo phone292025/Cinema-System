@@ -7,7 +7,9 @@ import java.util.UUID;
 
 import com.cinema.seat.SeatType;
 
+import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotNull;
 
 public final class ShowtimeDtos {
@@ -19,22 +21,22 @@ public final class ShowtimeDtos {
             @NotNull UUID hallId,
             @NotNull Instant startTime,
             @NotNull Instant endTime,
-            @DecimalMin("0.00") BigDecimal basePrice,
+            @NotNull @DecimalMin("0.00") @DecimalMax("9999.99") @Digits(integer = 4, fraction = 2) BigDecimal basePrice,
             @NotNull ShowtimeStatus status) {
     }
 
     public record ShowtimeResponse(UUID id, UUID movieId, String movieTitle, UUID cinemaId, String cinemaName, UUID hallId,
             String hallName, Instant startTime, Instant endTime, BigDecimal basePrice, ShowtimeStatus status,
-            Long soldSeats, Long totalSeats) {
+            Long soldSeats, Long totalSeats, BigDecimal revenue) {
         public static ShowtimeResponse from(Showtime showtime) {
-            return from(showtime, null, null);
+            return from(showtime, null, null, null);
         }
 
-        public static ShowtimeResponse from(Showtime showtime, Long soldSeats, Long totalSeats) {
+        public static ShowtimeResponse from(Showtime showtime, Long soldSeats, Long totalSeats, BigDecimal revenue) {
             return new ShowtimeResponse(showtime.getId(), showtime.getMovie().getId(), showtime.getMovie().getTitle(),
                     showtime.getHall().getCinema().getId(), showtime.getHall().getCinema().getName(), showtime.getHall().getId(),
                     showtime.getHall().getName(), showtime.getStartTime(), showtime.getEndTime(), showtime.getBasePrice(),
-                    showtime.getStatus(), soldSeats, totalSeats);
+                    showtime.getStatus(), soldSeats, totalSeats, revenue);
         }
     }
 
