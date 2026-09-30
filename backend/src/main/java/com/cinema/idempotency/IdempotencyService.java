@@ -2,12 +2,13 @@ package com.cinema.idempotency;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.UUID;
 
 import com.cinema.common.ApiException;
 import com.cinema.common.SchedulerGuard;
-import com.cinema.user.User;
 import com.cinema.user.UserRepository;
 
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -15,6 +16,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class IdempotencyService {
+    static final Duration ABANDONED_AFTER = Duration.ofHours(1);
+    static final Duration COMPLETED_RETENTION = Duration.ofHours(24);
+
     private final IdempotencyKeyRepository keys;
     private final UserRepository users;
     private final SchedulerGuard schedulerGuard;
@@ -49,13 +53,15 @@ public class IdempotencyService {
     }
 
     @Scheduled(cron = "0 */30 * * * *")
-    public void cleanupAbandonedKeysJob() {
-        schedulerGuard.runExclusively("idempotency-cleanup", this::cleanupAbandonedKeys);
+    public void cleanupExpiredKeysJob() {
+        schedulerGuard.runExclusively("idempotency-cleanup", this::cleanupExpiredKeys);
     }
 
     @Transactional
-    public void cleanupAbandonedKeys() {
-        keys.deleteByCompletedAtIsNullAndCreatedAtBefore(Instant.now().minus(Duration.ofHours(1)));
+    public void cleanupExpiredKeys() {
+        Instant now = Instant.now();
+        keys.deleteAbandonedBefore(now.minus(ABANDONED_AFTER));
+        keys.deleteCompletedBefore(now.minus(COMPLETED_RETENTION));
     }
 
     private CachedResponse create(String key, String actorKey, String userId, String requestHash) {
@@ -64,9 +70,13 @@ public class IdempotencyService {
         record.setActorKey(actorKey);
         record.setRequestHash(requestHash);
         if (userId != null) {
-            users.findById(java.util.UUID.fromString(userId)).ifPresent(record::setUser);
+            users.findById(UUID.fromString(userId)).ifPresent(record::setUser);
         }
-        keys.save(record);
+        try {
+            keys.saveAndFlush(record);
+        } catch (DataIntegrityViolationException ex) {
+            throw stillProcessing();
+        }
         return CachedResponse.miss();
     }
 
@@ -75,9 +85,13 @@ public class IdempotencyService {
             throw new ApiException(HttpStatus.CONFLICT, "Idempotency key was reused with a different request.");
         }
         if (existing.getCompletedAt() == null) {
-            throw new ApiException(HttpStatus.CONFLICT, "Request with this idempotency key is still processing.");
+            throw stillProcessing();
         }
         return new CachedResponse(true, existing.getStatusCode(), existing.getResponseBody());
+    }
+
+    private ApiException stillProcessing() {
+        return new ApiException(HttpStatus.CONFLICT, "Request with this idempotency key is still processing.");
     }
 
     public record CachedResponse(boolean hit, Integer statusCode, String responseBody) {
