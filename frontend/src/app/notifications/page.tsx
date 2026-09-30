@@ -1,31 +1,38 @@
 "use client";
 
-import { ArrowRight, Bell, CheckCheck } from "lucide-react";
+import { ArrowRight, Bell, CheckCheck, Loader2 } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { AppShell } from "@/components/AppShell";
-import { apiFetch } from "@/lib/api";
-import type { Notification, NotificationList } from "@/lib/types";
+import { ErrorState, InlineError } from "@/components/Feedback";
+import { apiFetch, errorMessage, notifyNotificationsChanged } from "@/lib/api";
+import type { NotificationList } from "@/lib/types";
+import { useApiQuery } from "@/lib/useApiQuery";
+
+// The server returns only the most recent notifications.
+const NOTIFICATION_LIMIT = 100;
 
 export default function NotificationsPage() {
-  const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [error, setError] = useState("");
+  const { data, error, loading, reload } = useApiQuery<NotificationList>("/notifications");
+  const [actionError, setActionError] = useState("");
+  const [pending, setPending] = useState<string | null>(null);
+  const notifications = data?.notifications ?? [];
+  const unreadCount = data?.unreadCount ?? notifications.filter((item) => !item.readAt).length;
 
-  function load() {
-    apiFetch<NotificationList>("/notifications").then((response) => setNotifications(response.notifications)).catch((err) => setError(err.message));
-  }
-
-  useEffect(load, []);
-
-  async function markRead(id: string) {
-    await apiFetch<Notification>(`/notifications/${id}/read`, { method: "POST" });
-    load();
-  }
-
-  async function markAllRead() {
-    await apiFetch<void>("/notifications/read-all", { method: "POST" });
-    load();
+  async function mutate(key: string, path: string, fallback: string) {
+    if (pending) return;
+    setActionError("");
+    setPending(key);
+    try {
+      await apiFetch<void>(path, { method: "POST" });
+      reload();
+      notifyNotificationsChanged();
+    } catch (err) {
+      setActionError(errorMessage(err, fallback));
+    } finally {
+      setPending(null);
+    }
   }
 
   return (
@@ -38,17 +45,26 @@ export default function NotificationsPage() {
           </div>
           <button
             type="button"
-            onClick={markAllRead}
-            className="flex items-center gap-2 rounded-md border border-line px-4 py-3 text-sm text-muted hover:border-accent hover:text-accent"
+            onClick={() => mutate("all", "/notifications/read-all", "Could not mark notifications as read.")}
+            disabled={pending !== null || unreadCount === 0}
+            className="flex items-center gap-2 rounded-md border border-line px-4 py-3 text-sm text-muted hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <CheckCheck size={17} aria-hidden />
+            {pending === "all" ? <Loader2 size={17} className="animate-spin" aria-hidden /> : <CheckCheck size={17} aria-hidden />}
             Mark all read
           </button>
         </div>
 
-        {error && <p className="mt-5 rounded-md border border-danger/40 bg-danger/10 p-4 text-danger">{error}</p>}
+        <InlineError className="mt-5" message={actionError} />
+        {error && !data ? (
+          <ErrorState className="mt-5" title="We couldn't load your notifications" message={error.message} onRetry={reload} retrying={loading} />
+        ) : null}
 
         <div className="mt-6 grid gap-3">
+          {!data && !error
+            ? Array.from({ length: 3 }).map((_, index) => (
+                <div key={index} aria-hidden className="h-32 animate-pulse rounded-lg border border-line bg-panel" />
+              ))
+            : null}
           {notifications.map((item) => {
             const unread = !item.readAt;
             return (
@@ -61,7 +77,12 @@ export default function NotificationsPage() {
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
                     <p className="flex items-center gap-2 font-mono text-xs uppercase text-accent">
-                      {unread && <span className="size-2 rounded-full bg-accent" aria-label="Unread" />}
+                      {unread && (
+                        <>
+                          <span className="size-2 rounded-full bg-accent" aria-hidden />
+                          <span className="sr-only">Unread:</span>
+                        </>
+                      )}
                       {item.type.replaceAll("_", " ")}
                     </p>
                     <h2 className={`mt-2 text-xl ${unread ? "font-semibold text-foreground" : "font-medium text-muted"}`}>
@@ -75,7 +96,7 @@ export default function NotificationsPage() {
                           href={`/confirmation/${item.bookingId}`}
                           className="flex items-center gap-1.5 text-xs font-semibold text-accent hover:underline"
                         >
-                          View ticket
+                          View booking
                           <ArrowRight size={13} aria-hidden />
                         </Link>
                       )}
@@ -84,21 +105,26 @@ export default function NotificationsPage() {
                   {unread && (
                     <button
                       type="button"
-                      onClick={() => markRead(item.id)}
-                      className="shrink-0 rounded-md border border-line px-3 py-2 text-sm text-muted hover:border-accent hover:text-accent"
+                      onClick={() => mutate(item.id, `/notifications/${item.id}/read`, "Could not mark the notification as read.")}
+                      disabled={pending !== null}
+                      aria-label={`Mark "${item.title}" as read`}
+                      className="shrink-0 rounded-md border border-line px-3 py-2 text-sm text-muted hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      Mark read
+                      {pending === item.id ? "Marking…" : "Mark read"}
                     </button>
                   )}
                 </div>
               </article>
             );
           })}
-          {notifications.length === 0 && (
+          {data && notifications.length === 0 && (
             <div className="rounded-lg border border-line bg-panel p-8 text-center text-muted">
               <Bell className="mx-auto text-accent" size={34} aria-hidden />
               <p className="mt-3">No notifications yet.</p>
             </div>
+          )}
+          {notifications.length >= NOTIFICATION_LIMIT && (
+            <p className="text-center text-xs text-muted">Showing your {NOTIFICATION_LIMIT} most recent notifications.</p>
           )}
         </div>
       </section>
