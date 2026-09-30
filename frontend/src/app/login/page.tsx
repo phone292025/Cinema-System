@@ -2,32 +2,35 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { LogIn } from "lucide-react";
+import { Loader2, LogIn } from "lucide-react";
 import { FormEvent, useState } from "react";
 
 import { AuthFrame } from "@/components/AuthFrame";
-import { apiFetch, storeAuth } from "@/lib/api";
+import { apiFetch, errorMessage, safeNextPath, storeAuth } from "@/lib/api";
 import type { AuthResponse } from "@/lib/types";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const router = useRouter();
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (submitting) return;
     setError("");
+    setSubmitting(true);
     try {
       const auth = await apiFetch<AuthResponse>("/auth/login", {
         method: "POST",
         body: JSON.stringify({ email, password }),
       });
       storeAuth(auth);
-      const next = new URLSearchParams(window.location.search).get("next");
-      router.push(next?.startsWith("/") && !next.startsWith("//") ? next : "/movies");
+      router.push(safeNextPath(new URLSearchParams(window.location.search).get("next")) ?? "/movies");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed.");
+      setError(errorMessage(err, "Login failed."));
+      setSubmitting(false);
     }
   }
 
@@ -68,14 +71,19 @@ export default function LoginPage() {
           />
         </label>
 
-        {error && <p className="rounded-md border border-danger/40 bg-danger/10 p-3 text-sm text-danger">{error}</p>}
+        {error && (
+          <p role="alert" className="rounded-md border border-danger/40 bg-danger/10 p-3 text-sm text-danger">
+            {error}
+          </p>
+        )}
 
         <button
           type="submit"
-          className="flex w-full items-center justify-center gap-2 rounded-md bg-accent px-4 py-3 font-semibold text-background hover:bg-accent-strong hover:text-foreground active:scale-[0.98]"
+          disabled={submitting}
+          className="flex w-full items-center justify-center gap-2 rounded-md bg-accent px-4 py-3 font-semibold text-background hover:bg-accent-strong hover:text-foreground active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
         >
-          <LogIn size={18} aria-hidden />
-          Sign in
+          {submitting ? <Loader2 size={18} className="animate-spin" aria-hidden /> : <LogIn size={18} aria-hidden />}
+          {submitting ? "Signing in" : "Sign in"}
         </button>
 
         <p className="text-sm text-muted">

@@ -61,7 +61,11 @@ export default function RegisterPage() {
           </label>
         ))}
 
-        {error && <p className="rounded-md border border-danger/40 bg-danger/10 p-3 text-sm text-danger">{error}</p>}
+        {error && (
+          <p role="alert" className="rounded-md border border-danger/40 bg-danger/10 p-3 text-sm text-danger">
+            {error}
+          </p>
+        )}
 
         <button
           type="submit"

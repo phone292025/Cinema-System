@@ -1,3 +1,11 @@
+export type ErrorResponse = {
+  timestamp: string;
+  status: number;
+  error: string;
+  message: string;
+  requestId?: string;
+};
+
 export type User = {
   id: string;
   name: string;
@@ -47,13 +55,26 @@ export type Showtime = {
   status: "SCHEDULED" | "CANCELLED" | "SOLD_OUT";
   soldSeats?: number | null;
   totalSeats?: number | null;
+  /** Sum of paid booking item prices; only returned by the admin endpoints. */
+  revenue?: number | null;
 };
+
+export type Hall = {
+  id: string;
+  cinemaId: string;
+  name: string;
+  type: string;
+  totalRows: number;
+  totalColumns: number;
+};
+
+export type SeatType = "REGULAR" | "PREMIUM" | "COUPLE" | "VIP";
 
 export type SeatAvailability = {
   seatId: string;
   rowLabel: string;
   seatNumber: number;
-  seatType: "REGULAR" | "PREMIUM" | "COUPLE" | "VIP";
+  seatType: SeatType;
   price: number;
   status: "AVAILABLE" | "LOCKED" | "BOOKED" | "BLOCKED";
   lockedUntil?: string;
@@ -84,6 +105,8 @@ export type Booking = {
   status: "LOCKED" | "PAYMENT_PENDING" | "PAID" | "TICKET_ISSUED" | "CANCELLED" | "EXPIRED" | "REFUND_PENDING" | "REFUNDED";
   expiresAt?: string;
   seats: BookingSeat[];
+  /** Last moment this booking can be cancelled; null when it can't be (or the response doesn't say). */
+  cancellableUntil?: string | null;
 };
 
 export type Payment = {

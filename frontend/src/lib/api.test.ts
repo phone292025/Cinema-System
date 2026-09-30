@@ -1,6 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { apiFetch, clearIdempotencyKey, getAccessToken, idempotencyKeyFor, storeAuth } from "./api";
+import {
+  ApiError,
+  apiFetch,
+  clearIdempotencyKey,
+  getAccessToken,
+  idempotencyKeyFor,
+  safeNextPath,
+  setSessionExpiredHandler,
+  storeAuth,
+} from "./api";
 import type { AuthResponse } from "./types";
 
 type FetchMock = ReturnType<typeof vi.fn>;
@@ -64,14 +73,47 @@ describe("apiFetch", () => {
     expect(refreshCalls).toHaveLength(1);
   });
 
-  it("clears the session when the refresh token is rejected", async () => {
+  it("signs out and sends the user to login when the refresh token is rejected", async () => {
+    const redirect = vi.fn();
+    const restore = setSessionExpiredHandler(redirect);
     storeAuth(authResponse("expired-token"));
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ message: "Token expired." }, 401))
-      .mockResolvedValueOnce(jsonResponse({ message: "Refresh token revoked." }, 401));
+      .mockResolvedValueOnce(jsonResponse({ message: "Refresh token revoked." }, 401))
+      .mockResolvedValueOnce(jsonResponse({ message: "Authentication is required." }, 401));
 
-    await expect(apiFetch("/bookings/b1")).rejects.toThrow("Token expired.");
+    try {
+      await expect(apiFetch("/bookings/b1")).rejects.toThrow("Your session has expired");
+    } finally {
+      restore();
+    }
     expect(getAccessToken()).toBeNull();
+    expect(redirect).toHaveBeenCalledWith(expect.stringMatching(/^\/login\?next=/));
+  });
+
+  it("stays on the page for background requests when the session is gone", async () => {
+    const redirect = vi.fn();
+    const restore = setSessionExpiredHandler(redirect);
+    fetchMock.mockResolvedValueOnce(jsonResponse({ message: "Authentication is required." }, 401));
+
+    try {
+      await expect(apiFetch("/notifications", { skipAuthRedirect: true })).rejects.toBeInstanceOf(ApiError);
+    } finally {
+      restore();
+    }
+    expect(redirect).not.toHaveBeenCalled();
+  });
+
+  it("adds the request reference to server errors so support can trace them", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ message: "Unexpected server error.", requestId: "req-42" }, 500));
+
+    await expect(apiFetch("/movies")).rejects.toThrow("Unexpected server error. (Reference: req-42)");
+  });
+
+  it("reports an unreachable server as a network error", async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+
+    await expect(apiFetch("/movies")).rejects.toMatchObject({ status: 0, message: expect.stringContaining("Could not reach") });
   });
 
   it("does not try to refresh a failed login", async () => {
@@ -131,4 +173,17 @@ describe("idempotencyKeyFor", () => {
   it("keeps separate operations on separate keys", () => {
     expect(idempotencyKeyFor("lock-seats:s1:a")).not.toBe(idempotencyKeyFor("lock-seats:s1:b"));
   });
+});
+
+describe("safeNextPath", () => {
+  it("keeps same-site paths", () => {
+    expect(safeNextPath("/bookings?tab=past")).toBe("/bookings?tab=past");
+  });
+
+  it.each(["//evil.example", "/\\evil.example", "https://evil.example/login", "javascript:alert(1)", ""])(
+    "rejects %s",
+    (next) => {
+      expect(safeNextPath(next)).toBeNull();
+    },
+  );
 });

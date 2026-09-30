@@ -19,7 +19,7 @@ import {
 import { useEffect, useState, useSyncExternalStore } from "react";
 
 import { SiteFooter } from "@/components/SiteFooter";
-import { apiFetch, getStoredUser, logout, subscribeToAuthChanges } from "@/lib/api";
+import { apiFetch, getStoredUser, logout, NOTIFICATIONS_CHANGED_EVENT, subscribeToAuthChanges } from "@/lib/api";
 import type { NotificationList } from "@/lib/types";
 
 const nav = [
@@ -57,19 +57,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!user) return undefined;
     let cancelled = false;
-    apiFetch<NotificationList>("/notifications")
-      .then((items) => {
-        if (!cancelled) setUnreadNotifications({ userId: user.id, count: items.unreadCount });
-      })
-      .catch(() => {
-        if (!cancelled) setUnreadNotifications({ userId: user.id, count: 0 });
-      });
+    const loadUnread = () => {
+      // A badge count is not worth yanking someone off a public page when their session lapses.
+      apiFetch<NotificationList>("/notifications", { skipAuthRedirect: true })
+        .then((items) => {
+          if (!cancelled) setUnreadNotifications({ userId: user.id, count: items.unreadCount });
+        })
+        .catch(() => {
+          if (!cancelled) setUnreadNotifications({ userId: user.id, count: 0 });
+        });
+    };
+    loadUnread();
+    window.addEventListener(NOTIFICATIONS_CHANGED_EVENT, loadUnread);
     return () => {
       cancelled = true;
+      window.removeEventListener(NOTIFICATIONS_CHANGED_EVENT, loadUnread);
     };
   }, [user]);
 
   const unreadNotificationCount = user && unreadNotifications?.userId === user.id ? unreadNotifications.count : 0;
+  const notificationsLabel = unreadNotificationCount > 0 ? `Notifications, ${unreadNotificationCount} unread` : "Notifications";
   const isStaff = user?.role === "ADMIN" || user?.role === "STAFF";
 
   const mobileNavItems = mobileNav
@@ -112,7 +119,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <Link
                 href="/notifications"
                 className="relative grid size-10 place-items-center rounded-md border border-white/10 bg-panel/80 text-foreground"
-                aria-label="Notifications"
+                aria-label={notificationsLabel}
                 title="Notifications"
               >
                 <Bell size={20} aria-hidden />
@@ -164,7 +171,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <Link
                   href="/notifications"
                   className="relative grid size-10 place-items-center rounded-md border border-line text-muted hover:border-accent hover:text-accent"
-                  aria-label="Notifications"
+                  aria-label={notificationsLabel}
                   title="Notifications"
                 >
                   <Bell size={18} aria-hidden />
