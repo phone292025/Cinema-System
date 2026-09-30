@@ -48,6 +48,7 @@ public class BookingController {
     }
 
     @PostMapping("/{id}/cancel")
+    @Idempotent
     BookingResponse cancel(@AuthenticationPrincipal AuthUser user, @PathVariable UUID id) {
         return bookingService.cancel(user, id);
     }

@@ -4,7 +4,6 @@ import java.util.UUID;
 
 import com.cinema.auth.AuthUser;
 import com.cinema.notification.NotificationDtos.NotificationListResponse;
-import com.cinema.notification.NotificationDtos.NotificationResponse;
 
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -16,18 +15,15 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/notifications")
 public class NotificationController {
-    private final NotificationRepository notifications;
     private final NotificationService notificationService;
 
-    public NotificationController(NotificationRepository notifications, NotificationService notificationService) {
-        this.notifications = notifications;
+    public NotificationController(NotificationService notificationService) {
         this.notificationService = notificationService;
     }
 
     @GetMapping
     NotificationListResponse list(@AuthenticationPrincipal AuthUser user) {
-        return new NotificationListResponse(notifications.countByUserIdAndReadAtIsNull(user.id()),
-                notifications.findByUserIdOrderByCreatedAtDesc(user.id()).stream().map(NotificationResponse::from).toList());
+        return notificationService.list(user.id());
     }
 
     @PostMapping("/{id}/read")

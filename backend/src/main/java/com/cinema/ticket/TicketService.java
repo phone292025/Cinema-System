@@ -17,21 +17,26 @@ import javax.imageio.ImageIO;
 import com.cinema.audit.AuditLogService;
 import com.cinema.auth.AuthUser;
 import com.cinema.booking.Booking;
+import com.cinema.booking.BookingAccess;
 import com.cinema.booking.BookingEvent;
 import com.cinema.booking.BookingRepository;
 import com.cinema.booking.BookingStateMachine;
 import com.cinema.booking.BookingStatus;
 import com.cinema.common.ApiException;
+import com.cinema.common.RecordedFailureException;
 import com.cinema.common.SecretValidator;
 import com.cinema.notification.NotificationService;
+import com.cinema.ticket.TicketDtos.TicketResponse;
+import com.cinema.ticket.TicketDtos.ValidateTicketResponse;
 import com.cinema.user.User;
 import com.cinema.user.UserRepository;
-import com.cinema.user.UserRole;
 import com.google.zxing.BarcodeFormat;
 import com.google.zxing.client.j2se.MatrixToImageWriter;
 import com.google.zxing.common.BitMatrix;
 import com.google.zxing.qrcode.QRCodeWriter;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -39,6 +44,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class TicketService {
+    private static final Logger log = LoggerFactory.getLogger(TicketService.class);
+    private static final Duration VALIDATION_GRACE = Duration.ofMinutes(30);
+
     private final TicketRepository tickets;
     private final BookingRepository bookings;
     private final UserRepository users;
@@ -60,25 +68,43 @@ public class TicketService {
     }
 
     @Transactional
-    public Ticket issue(UUID bookingId) {
-        return tickets.findByBookingId(bookingId).orElseGet(() -> createTicket(bookingId));
+    public void issue(UUID bookingId) {
+        Booking booking = bookings.lockById(bookingId).orElse(null);
+        if (booking == null) {
+            log.warn("Skipping ticket issue: booking {} does not exist.", bookingId);
+            return;
+        }
+        if (tickets.findByBookingId(bookingId).isPresent()) {
+            return;
+        }
+        if (booking.getStatus() != BookingStatus.PAID && booking.getStatus() != BookingStatus.TICKET_ISSUED) {
+            log.info("Skipping ticket issue: booking {} is {} and no longer needs a ticket.", bookingId, booking.getStatus());
+            return;
+        }
+        createTicket(booking);
     }
 
     @Transactional(readOnly = true)
-    public Ticket getForBooking(AuthUser user, UUID bookingId) {
+    public TicketResponse getForBooking(AuthUser user, UUID bookingId) {
         Booking booking = bookings.findById(bookingId).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Booking not found."));
-        assertOwnsOrAdmin(user, booking);
-        return tickets.findByBookingId(bookingId).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Ticket is not ready yet."));
+        BookingAccess.requireOwnerOrAdmin(user, booking);
+        return tickets.findDetailedByBookingId(bookingId).map(TicketResponse::from)
+                .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Ticket is not ready yet."));
     }
 
     @Transactional(readOnly = true)
     public byte[] qrPng(AuthUser user, UUID ticketId) {
         Ticket ticket = tickets.findById(ticketId).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Ticket not found."));
-        assertOwnsOrAdmin(user, ticket.getBooking());
+        BookingAccess.requireOwnerOrAdmin(user, ticket.getBooking());
         return qr(rawToken(ticket.getBooking().getId(), ticket.getTicketCode()));
     }
 
-    @Transactional
+    @Transactional(noRollbackFor = RecordedFailureException.class)
+    public ValidateTicketResponse validateForStaff(AuthUser staff, String scannedCode, String qrToken) {
+        return ValidateTicketResponse.from(validate(staff, scannedCode, qrToken));
+    }
+
+    @Transactional(noRollbackFor = RecordedFailureException.class)
     public Ticket validate(AuthUser staff, String scannedCode, String qrToken) {
         String rawToken = qrToken == null || qrToken.isBlank() ? scannedCode : qrToken;
         if (rawToken == null || rawToken.isBlank()) {
@@ -93,9 +119,9 @@ public class TicketService {
             throw new ApiException(HttpStatus.CONFLICT, "Booking was cancelled.");
         }
         if (ticket.getStatus() == TicketStatus.EXPIRED
-                || ticket.getBooking().getShowtime().getStartTime().isBefore(Instant.now().minus(Duration.ofMinutes(30)))) {
+                || ticket.getBooking().getShowtime().getStartTime().isBefore(Instant.now().minus(VALIDATION_GRACE))) {
             ticket.setStatus(TicketStatus.EXPIRED);
-            throw new ApiException(HttpStatus.CONFLICT, "Showtime already ended.");
+            throw new RecordedFailureException(HttpStatus.CONFLICT, "Showtime already ended.");
         }
         User validator = users.findById(staff.id()).orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "Staff user not found."));
         Instant usedAt = Instant.now();
@@ -110,12 +136,8 @@ public class TicketService {
         return ticket;
     }
 
-    private Ticket createTicket(UUID bookingId) {
-        Booking booking = bookings.lockById(bookingId).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Booking not found."));
-        if (booking.getStatus() != BookingStatus.PAID && booking.getStatus() != BookingStatus.TICKET_ISSUED) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "Ticket can only be issued for a paid booking.");
-        }
-        String ticketCode = "TCK-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT);
+    private void createTicket(Booking booking) {
+        String ticketCode = "TCK-" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase(Locale.ROOT);
         Ticket ticket = new Ticket();
         ticket.setBooking(booking);
         ticket.setTicketCode(ticketCode);
@@ -130,13 +152,6 @@ public class TicketService {
                 "Show your QR ticket at the cinema entrance for " + booking.getShowtime().getMovie().getTitle() + ".",
                 booking.getId());
         auditLogs.system("TICKET_ISSUED", "Ticket", saved.getId().toString(), saved.getTicketCode());
-        return saved;
-    }
-
-    private void assertOwnsOrAdmin(AuthUser authUser, Booking booking) {
-        if (!booking.getUser().getId().equals(authUser.id()) && authUser.role() != UserRole.ADMIN) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "Ticket does not belong to this user.");
-        }
     }
 
     private String rawToken(UUID bookingId, String ticketCode) {

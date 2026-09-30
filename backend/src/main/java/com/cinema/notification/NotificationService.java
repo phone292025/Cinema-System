@@ -4,6 +4,8 @@ import java.time.Instant;
 import java.util.UUID;
 
 import com.cinema.common.ApiException;
+import com.cinema.notification.NotificationDtos.NotificationListResponse;
+import com.cinema.notification.NotificationDtos.NotificationResponse;
 import com.cinema.user.User;
 import com.cinema.user.UserRepository;
 
@@ -19,6 +21,12 @@ public class NotificationService {
     public NotificationService(NotificationRepository notifications, UserRepository users) {
         this.notifications = notifications;
         this.users = users;
+    }
+
+    @Transactional(readOnly = true)
+    public NotificationListResponse list(UUID userId) {
+        return new NotificationListResponse(notifications.countByUserIdAndReadAtIsNull(userId),
+                notifications.findTop100ByUserIdOrderByCreatedAtDesc(userId).stream().map(NotificationResponse::from).toList());
     }
 
     @Transactional
@@ -43,17 +51,14 @@ public class NotificationService {
     public void markRead(UUID userId, UUID notificationId) {
         Notification notification = notifications.findByIdAndUserId(notificationId, userId)
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Notification not found."));
-        notification.setRead(true);
-        notification.setReadAt(Instant.now());
+        if (notification.getReadAt() == null) {
+            notification.setRead(true);
+            notification.setReadAt(Instant.now());
+        }
     }
 
     @Transactional
     public void markAllRead(UUID userId) {
-        notifications.findByUserIdOrderByCreatedAtDesc(userId).stream()
-                .filter(notification -> notification.getReadAt() == null)
-                .forEach(notification -> {
-                    notification.setRead(true);
-                    notification.setReadAt(Instant.now());
-                });
+        notifications.markAllRead(userId, Instant.now());
     }
 }

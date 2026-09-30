@@ -1,5 +1,7 @@
 package com.cinema.outbox;
 
+import java.util.UUID;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.springframework.stereotype.Service;
@@ -16,10 +18,11 @@ public class OutboxService {
     }
 
     @Transactional
-    public void enqueue(String eventType, Object payload) {
+    public void enqueue(String eventType, UUID aggregateId, Object payload) {
         try {
             OutboxEvent event = new OutboxEvent();
             event.setEventType(eventType);
+            event.setAggregateId(aggregateId);
             event.setPayload(objectMapper.writeValueAsString(payload));
             event.setStatus(OutboxStatus.PENDING);
             events.save(event);

@@ -1,11 +1,13 @@
 package com.cinema.booking;
 
-import java.math.BigDecimal;
+import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Locale;
 import java.util.UUID;
 
 import com.cinema.audit.AuditLogService;
@@ -14,6 +16,9 @@ import com.cinema.booking.BookingDtos.BookingResponse;
 import com.cinema.booking.BookingDtos.LockSeatsRequest;
 import com.cinema.common.ApiException;
 import com.cinema.common.SchedulerGuard;
+import com.cinema.notification.NotificationService;
+import com.cinema.payment.PaymentRepository;
+import com.cinema.payment.PaymentStatus;
 import com.cinema.showtime.SeatEvent;
 import com.cinema.showtime.SeatEventPublisher;
 import com.cinema.showtime.SeatEventType;
@@ -26,7 +31,6 @@ import com.cinema.ticket.TicketRepository;
 import com.cinema.ticket.TicketStatus;
 import com.cinema.user.User;
 import com.cinema.user.UserRepository;
-import com.cinema.user.UserRole;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
@@ -36,10 +40,15 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class BookingService {
+    private static final String CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    private static final int CODE_SUFFIX_LENGTH = 8;
+    private static final DateTimeFormatter CODE_DATE = DateTimeFormatter.BASIC_ISO_DATE;
+
     private final BookingRepository bookings;
     private final ShowtimeRepository showtimes;
     private final ShowtimeSeatRepository showtimeSeats;
     private final UserRepository users;
+    private final PaymentRepository payments;
     private final SeatLockService seatLocks;
     private final BookingPriceCalculator priceCalculator;
     private final BookingStateMachine stateMachine;
@@ -47,18 +56,22 @@ public class BookingService {
     private final AuditLogService auditLogs;
     private final TicketRepository tickets;
     private final SchedulerGuard schedulerGuard;
+    private final NotificationService notifications;
     private final Duration lockDuration;
     private final long cancelCutoffHours;
+    private final SecureRandom random = new SecureRandom();
 
     public BookingService(BookingRepository bookings, ShowtimeRepository showtimes, ShowtimeSeatRepository showtimeSeats,
-            UserRepository users, SeatLockService seatLocks, BookingPriceCalculator priceCalculator, BookingStateMachine stateMachine,
-            SeatEventPublisher seatEvents, AuditLogService auditLogs, TicketRepository tickets, SchedulerGuard schedulerGuard,
+            UserRepository users, PaymentRepository payments, SeatLockService seatLocks, BookingPriceCalculator priceCalculator,
+            BookingStateMachine stateMachine, SeatEventPublisher seatEvents, AuditLogService auditLogs, TicketRepository tickets,
+            SchedulerGuard schedulerGuard, NotificationService notifications,
             @Value("${app.booking.lock-minutes}") long lockMinutes,
             @Value("${app.booking.cancel-cutoff-hours}") long cancelCutoffHours) {
         this.bookings = bookings;
         this.showtimes = showtimes;
         this.showtimeSeats = showtimeSeats;
         this.users = users;
+        this.payments = payments;
         this.seatLocks = seatLocks;
         this.priceCalculator = priceCalculator;
         this.stateMachine = stateMachine;
@@ -66,16 +79,19 @@ public class BookingService {
         this.auditLogs = auditLogs;
         this.tickets = tickets;
         this.schedulerGuard = schedulerGuard;
+        this.notifications = notifications;
         this.lockDuration = Duration.ofMinutes(lockMinutes);
         this.cancelCutoffHours = cancelCutoffHours;
     }
 
     @Transactional
     public BookingResponse lockSeats(AuthUser authUser, LockSeatsRequest request) {
-        cleanupExpiredLocks();
         User user = users.findById(authUser.id()).orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "User not found."));
         Showtime showtime = showtimes.findById(request.showtimeId())
                 .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Showtime not found."));
+        if (!showtime.getStartTime().isAfter(Instant.now())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "This showtime has already started.");
+        }
 
         List<UUID> uniqueSeatIds = request.seatIds().stream().distinct().toList();
         List<ShowtimeSeat> seats = showtimeSeats.lockByShowtimeAndSeatIds(showtime.getId(), uniqueSeatIds);
@@ -121,32 +137,38 @@ public class BookingService {
         });
         auditLogs.record(authUser, "SEAT_LOCKED", "Booking", booking.getId().toString(), null,
                 uniqueSeatIds.stream().map(UUID::toString).toList().toString(), null);
-        return BookingResponse.from(booking);
+        return describe(booking);
     }
 
     @Transactional(readOnly = true)
     public List<BookingResponse> findUserBookings(UUID userId) {
-        return bookings.findByUserIdOrderByCreatedAtDesc(userId).stream().map(BookingResponse::from).toList();
+        return bookings.findByUserIdOrderByCreatedAtDesc(userId).stream().map(this::describe).toList();
     }
 
     @Transactional(readOnly = true)
     public BookingResponse get(AuthUser authUser, UUID bookingId) {
-        Booking booking = bookings.findById(bookingId).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Booking not found."));
-        assertOwnsOrAdmin(authUser, booking);
-        return BookingResponse.from(booking);
+        Booking booking = bookings.findDetailedById(bookingId).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Booking not found."));
+        BookingAccess.requireOwnerOrAdmin(authUser, booking);
+        return describe(booking);
     }
 
     @Transactional
     public BookingResponse cancel(AuthUser authUser, UUID bookingId) {
         Booking booking = bookings.lockById(bookingId).orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, "Booking not found."));
-        assertOwnsOrAdmin(authUser, booking);
-        if ((booking.getStatus() == BookingStatus.PAID || booking.getStatus() == BookingStatus.TICKET_ISSUED)
-                && Instant.now().isAfter(booking.getShowtime().getStartTime().minus(Duration.ofHours(cancelCutoffHours)))) {
+        BookingAccess.requireOwnerOrAdmin(authUser, booking);
+        boolean paid = booking.getStatus() == BookingStatus.PAID || booking.getStatus() == BookingStatus.TICKET_ISSUED;
+        if (paid && Instant.now().isAfter(booking.getShowtime().getStartTime().minus(Duration.ofHours(cancelCutoffHours)))) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "Booking can only be cancelled at least %d hours before showtime.".formatted(cancelCutoffHours));
         }
-        if (booking.getStatus() == BookingStatus.PAID || booking.getStatus() == BookingStatus.TICKET_ISSUED) {
+        if (paid) {
             booking.setStatus(stateMachine.transition(booking.getStatus(), BookingEvent.REFUND_REQUESTED));
             booking.setStatus(stateMachine.transition(booking.getStatus(), BookingEvent.REFUNDED));
+            payments.findFirstByBookingIdAndStatus(booking.getId(), PaymentStatus.SUCCEEDED)
+                    .ifPresent(payment -> payment.setStatus(PaymentStatus.REFUNDED));
+            notifications.create(booking.getUser().getId(), "BOOKING_REFUNDED", "Booking cancelled and refunded",
+                    "Booking %s for %s was cancelled and $%s has been refunded.".formatted(booking.getBookingCode(),
+                            booking.getShowtime().getMovie().getTitle(), booking.getTotalAmount().setScale(2)),
+                    booking.getId());
         } else if (booking.getStatus() == BookingStatus.LOCKED || booking.getStatus() == BookingStatus.PAYMENT_PENDING) {
             booking.setStatus(stateMachine.transition(booking.getStatus(), BookingEvent.CANCELLED));
         } else {
@@ -156,7 +178,17 @@ public class BookingService {
         releaseSeats(booking);
         booking.setUpdatedAt(Instant.now());
         auditLogs.record(authUser, "BOOKING_CANCELLED", "Booking", booking.getId().toString(), null, booking.getStatus().name(), null);
-        return BookingResponse.from(booking);
+        return describe(booking);
+    }
+
+    @Transactional
+    public void expire(Booking booking) {
+        if (stateMachine.canTransition(booking.getStatus(), BookingEvent.EXPIRED)) {
+            booking.setStatus(stateMachine.transition(booking.getStatus(), BookingEvent.EXPIRED));
+            booking.setUpdatedAt(Instant.now());
+            auditLogs.system("BOOKING_EXPIRED", "Booking", booking.getId().toString(), booking.getStatus().name());
+        }
+        releaseSeats(booking);
     }
 
     @Scheduled(fixedDelay = 60_000)
@@ -166,13 +198,8 @@ public class BookingService {
 
     @Transactional
     public void expireStaleBookings() {
-        Instant now = Instant.now();
-        bookings.findByStatusInAndExpiresAtBefore(List.of(BookingStatus.LOCKED, BookingStatus.PAYMENT_PENDING), now).forEach(booking -> {
-            booking.setStatus(stateMachine.transition(booking.getStatus(), BookingEvent.EXPIRED));
-            booking.setUpdatedAt(now);
-            releaseSeats(booking);
-            auditLogs.system("BOOKING_EXPIRED", "Booking", booking.getId().toString(), booking.getStatus().name());
-        });
+        bookings.findByStatusInAndExpiresAtBefore(List.of(BookingStatus.LOCKED, BookingStatus.PAYMENT_PENDING), Instant.now())
+                .forEach(this::expire);
         cleanupExpiredLocks();
     }
 
@@ -221,6 +248,10 @@ public class BookingService {
                 booking.getItems().stream().map(item -> item.getSeat().getId()).toList(), booking.getId());
     }
 
+    private BookingResponse describe(Booking booking) {
+        return BookingResponse.from(booking, Duration.ofHours(cancelCutoffHours));
+    }
+
     private boolean holds(ShowtimeSeat seat, Booking booking) {
         return seat.getLockedByBookingId() == null || seat.getLockedByBookingId().equals(booking.getId());
     }
@@ -233,8 +264,7 @@ public class BookingService {
     }
 
     private void cleanupExpiredLocks() {
-        Instant now = Instant.now();
-        showtimeSeats.findByStatusAndLockedUntilBefore(ShowtimeSeatStatus.LOCKED, now)
+        showtimeSeats.findByStatusAndLockedUntilBefore(ShowtimeSeatStatus.LOCKED, Instant.now())
                 .forEach(seat -> markAvailable(seat, SeatEventType.SEAT_EXPIRED));
     }
 
@@ -244,14 +274,22 @@ public class BookingService {
         }
     }
 
-    private void assertOwnsOrAdmin(AuthUser authUser, Booking booking) {
-        if (!booking.getUser().getId().equals(authUser.id()) && authUser.role() != UserRole.ADMIN) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "Booking does not belong to this user.");
+    private String generateCode() {
+        String date = LocalDate.now(ZoneOffset.UTC).format(CODE_DATE);
+        for (int attempt = 0; attempt < 5; attempt++) {
+            String code = "CBX-" + date + "-" + randomSuffix();
+            if (!bookings.existsByBookingCode(code)) {
+                return code;
+            }
         }
+        throw new IllegalStateException("Could not generate a unique booking code.");
     }
 
-    private String generateCode() {
-        return "CBX-" + Instant.now().toString().substring(0, 10).replace("-", "") + "-"
-                + UUID.randomUUID().toString().substring(0, 6).toUpperCase(Locale.ROOT);
+    private String randomSuffix() {
+        StringBuilder suffix = new StringBuilder(CODE_SUFFIX_LENGTH);
+        for (int i = 0; i < CODE_SUFFIX_LENGTH; i++) {
+            suffix.append(CODE_ALPHABET.charAt(random.nextInt(CODE_ALPHABET.length())));
+        }
+        return suffix.toString();
     }
 }

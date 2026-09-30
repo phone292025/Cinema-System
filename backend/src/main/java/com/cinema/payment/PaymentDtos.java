@@ -8,15 +8,19 @@ import com.cinema.booking.BookingDtos.BookingResponse;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 
 public final class PaymentDtos {
     private PaymentDtos() {
     }
 
-    public record InitiatePaymentRequest(@NotNull UUID bookingId, String method) {
+    public record InitiatePaymentRequest(@NotNull UUID bookingId, @Size(max = 40) String method) {
     }
 
     public record MockCallbackRequest(@NotBlank String paymentReference, @NotNull PaymentStatus status) {
+    }
+
+    public record WebhookAcknowledgement(String paymentReference, PaymentStatus status) {
     }
 
     public record PaymentResponse(UUID id, UUID bookingId, String paymentReference, BigDecimal amount, PaymentStatus status,
