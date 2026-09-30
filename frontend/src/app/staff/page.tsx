@@ -1,14 +1,16 @@
 "use client";
 
-import { Search, ShieldCheck, TicketCheck } from "lucide-react";
-import { FormEvent, useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { Loader2, Search, ShieldCheck, TicketCheck } from "lucide-react";
+import { FormEvent, useCallback, useRef, useState, useSyncExternalStore } from "react";
 
 import { AppShell } from "@/components/AppShell";
+import { ErrorState, InlineError } from "@/components/Feedback";
 import { QrScanner } from "@/components/QrScanner";
 import { StatusBadge } from "@/components/StatusBadge";
-import { apiFetch, getStoredUser, subscribeToAuthChanges } from "@/lib/api";
+import { apiFetch, errorMessage, getStoredUser, subscribeToAuthChanges } from "@/lib/api";
 import { formatShowtime, formatTimeOnly } from "@/lib/format";
 import type { BookingSeat, Showtime } from "@/lib/types";
+import { useApiQuery } from "@/lib/useApiQuery";
 
 type StaffValidation = {
   ticketCode: string;
@@ -33,39 +35,58 @@ type StaffBooking = {
   seats: BookingSeat[];
 };
 
+const noShowtimes: Showtime[] = [];
+
 export default function StaffPage() {
   const user = useSyncExternalStore(subscribeToAuthChanges, getStoredUser, () => null);
-  const [showtimes, setShowtimes] = useState<Showtime[]>([]);
+  const canUseStaff = user?.role === "ADMIN" || user?.role === "STAFF";
+  const {
+    data: todaysShowtimes,
+    error: showtimesError,
+    loading: showtimesLoading,
+    reload: reloadShowtimes,
+  } = useApiQuery<Showtime[]>(canUseStaff ? "/staff/showtimes/today" : null);
+  const showtimes = todaysShowtimes ?? noShowtimes;
   const [ticketCode, setTicketCode] = useState("");
   const [bookingCode, setBookingCode] = useState("");
   const [validation, setValidation] = useState<StaffValidation | null>(null);
   const [booking, setBooking] = useState<StaffBooking | null>(null);
   const [error, setError] = useState("");
-
-  const canUseStaff = user?.role === "ADMIN" || user?.role === "STAFF";
-
-  useEffect(() => {
-    if (!canUseStaff) return;
-    apiFetch<Showtime[]>("/staff/showtimes/today").then(setShowtimes).catch(() => undefined);
-  }, [canUseStaff]);
+  const [scanError, setScanError] = useState("");
+  const [validating, setValidating] = useState(false);
+  const [searching, setSearching] = useState(false);
+  // Validation marks a ticket as used, so a double scan must not send a second request.
+  const validatingRef = useRef(false);
+  const ticketInputRef = useRef<HTMLInputElement>(null);
 
   const runValidation = useCallback(async (code: string) => {
-    setError("");
+    const trimmed = code.trim();
+    if (!trimmed || validatingRef.current) return;
+    validatingRef.current = true;
+    setValidating(true);
+    setScanError("");
     setValidation(null);
     try {
-      const response = await apiFetch<StaffValidation>(`/staff/tickets/${encodeURIComponent(code)}/validate`, {
+      const response = await apiFetch<StaffValidation>(`/staff/tickets/${encodeURIComponent(trimmed)}/validate`, {
         method: "POST",
-        body: JSON.stringify({ qrToken: code }),
+        body: JSON.stringify({ qrToken: trimmed }),
       });
       setValidation(response);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Ticket validation failed.");
+      setScanError(errorMessage(err, "Ticket validation failed."));
+    } finally {
+      validatingRef.current = false;
+      setValidating(false);
     }
   }, []);
 
   async function validate(event: FormEvent) {
     event.preventDefault();
-    await runValidation(ticketCode);
+    const code = ticketCode;
+    // A USB scanner types the next code straight into this field, so it must be empty and focused again.
+    setTicketCode("");
+    ticketInputRef.current?.focus();
+    await runValidation(code);
   }
 
   const handleScan = useCallback(
@@ -78,13 +99,18 @@ export default function StaffPage() {
 
   async function searchBooking(event: FormEvent) {
     event.preventDefault();
+    const code = bookingCode.trim();
+    if (!code || searching) return;
+    setSearching(true);
     setError("");
     setBooking(null);
     try {
-      const response = await apiFetch<StaffBooking>(`/staff/bookings/search?code=${encodeURIComponent(bookingCode)}`);
+      const response = await apiFetch<StaffBooking>(`/staff/bookings/search?code=${encodeURIComponent(code)}`);
       setBooking(response);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Booking search failed.");
+      setError(errorMessage(err, "Booking search failed."));
+    } finally {
+      setSearching(false);
     }
   }
 
@@ -103,7 +129,7 @@ export default function StaffPage() {
 
         {canUseStaff && (
           <>
-            {error && <p className="mt-5 rounded-md border border-danger/40 bg-danger/10 p-4 text-danger">{error}</p>}
+            <InlineError className="mt-5" message={error} />
             <div className="mt-6 grid items-start gap-6 xl:grid-cols-[minmax(0,440px)_minmax(0,1fr)]">
               <div className="space-y-6">
               <div className="rounded-lg border border-line bg-panel p-5">
@@ -120,6 +146,7 @@ export default function StaffPage() {
                   </label>
                   <input
                     id="ticket-code"
+                    ref={ticketInputRef}
                     value={ticketCode}
                     onChange={(event) => setTicketCode(event.target.value)}
                     placeholder="Scan or type the code, then press Enter"
@@ -128,17 +155,18 @@ export default function StaffPage() {
                   />
                   <button
                     type="submit"
-                    disabled={!ticketCode.trim()}
+                    disabled={!ticketCode.trim() || validating}
                     className="mt-4 flex w-full items-center justify-center gap-2 rounded-md border border-line px-4 py-3 font-semibold text-muted hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    <TicketCheck size={18} aria-hidden />
-                    Validate
+                    {validating ? <Loader2 size={18} className="animate-spin" aria-hidden /> : <TicketCheck size={18} aria-hidden />}
+                    {validating ? "Validating" : "Validate"}
                   </button>
                 </form>
+                <InlineError className="mt-4" message={scanError} />
               </div>
 
               {validation && (
-                <article className="rounded-lg border border-success/40 bg-success/10 p-5">
+                <article role="status" className="rounded-lg border border-success/40 bg-success/10 p-5">
                   <div className="flex items-center justify-between gap-3">
                     <p className="font-mono text-sm text-accent">{validation.ticketCode}</p>
                     <StatusBadge status={validation.status} />
@@ -156,19 +184,29 @@ export default function StaffPage() {
                   <Search size={18} aria-hidden />
                   <p className="font-mono text-xs uppercase">Booking lookup</p>
                 </div>
+                <label htmlFor="booking-code" className="mt-5 block text-sm text-muted">
+                  Booking code
+                </label>
                 <input
+                  id="booking-code"
                   value={bookingCode}
                   onChange={(event) => setBookingCode(event.target.value)}
-                  placeholder="CBX-20260426-AB12"
-                  className="mt-5 w-full rounded-md border border-line bg-background px-3 py-3 outline-none focus:border-accent"
+                  placeholder="CBX-20261001-AB12CD34"
+                  autoComplete="off"
+                  className="mt-2 w-full rounded-md border border-line bg-background px-3 py-3 outline-none focus:border-accent"
                 />
-                <button type="submit" className="mt-4 rounded-md border border-line px-4 py-3 font-semibold text-muted hover:border-accent hover:text-accent">
+                <button
+                  type="submit"
+                  disabled={!bookingCode.trim() || searching}
+                  className="mt-4 flex items-center gap-2 rounded-md border border-line px-4 py-3 font-semibold text-muted hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {searching && <Loader2 size={18} className="animate-spin" aria-hidden />}
                   Search booking
                 </button>
               </form>
 
               {booking && (
-                <article className="rounded-lg border border-line bg-panel p-5">
+                <article role="status" className="rounded-lg border border-line bg-panel p-5">
                   <p className="font-mono text-sm text-accent">{booking.bookingCode}</p>
                   <h2 className="mt-3 text-xl font-semibold">{booking.movieTitle}</h2>
                   <p className="mt-2 text-muted">
@@ -187,34 +225,52 @@ export default function StaffPage() {
                     <p className="font-mono text-xs uppercase text-accent">Today&apos;s sessions</p>
                     <h2 className="mt-2 text-2xl font-semibold">Session table</h2>
                   </div>
-                  <p className="text-sm text-muted">{showtimes.length} sessions</p>
+                  <p className="text-sm text-muted">{todaysShowtimes ? `${showtimes.length} sessions` : ""}</p>
                 </div>
 
-                <div className="mt-5 max-h-[34rem] overflow-auto cinema-scrollbar-none">
-                  <table className="w-full min-w-[560px] border-separate border-spacing-0 text-left">
-                    <thead className="sticky top-0 z-10 bg-panel">
-                      <tr className="text-xs uppercase text-muted">
-                        <th className="border-b border-line px-4 py-3 font-mono">Movie</th>
-                        <th className="border-b border-line px-4 py-3 font-mono">Cinema</th>
-                        <th className="border-b border-line px-4 py-3 font-mono">Hall</th>
-                        <th className="border-b border-line px-4 py-3 font-mono">Time</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {showtimes.map((showtime) => (
-                        <tr key={showtime.id}>
-                          <td className="whitespace-nowrap border-b border-line/70 px-4 py-3 font-semibold">{showtime.movieTitle}</td>
-                          <td className="whitespace-nowrap border-b border-line/70 px-4 py-3 text-muted">{showtime.cinemaName}</td>
-                          <td className="whitespace-nowrap border-b border-line/70 px-4 py-3 text-muted">{showtime.hallName}</td>
-                          <td className="whitespace-nowrap border-b border-line/70 px-4 py-3 font-mono text-accent">
-                            {formatTimeOnly(showtime.startTime)}
-                          </td>
+                {showtimesError && !todaysShowtimes ? (
+                  <ErrorState
+                    className="mt-5"
+                    title="We couldn't load today's sessions"
+                    message={showtimesError.message}
+                    onRetry={reloadShowtimes}
+                    retrying={showtimesLoading}
+                  />
+                ) : (
+                  <div className="mt-5 max-h-[34rem] overflow-auto cinema-scrollbar-none">
+                    <table className="w-full min-w-[560px] border-separate border-spacing-0 text-left">
+                      <thead className="sticky top-0 z-10 bg-panel">
+                        <tr className="text-xs uppercase text-muted">
+                          <th className="border-b border-line px-4 py-3 font-mono">Movie</th>
+                          <th className="border-b border-line px-4 py-3 font-mono">Cinema</th>
+                          <th className="border-b border-line px-4 py-3 font-mono">Hall</th>
+                          <th className="border-b border-line px-4 py-3 font-mono">Time</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {showtimes.length === 0 && <p className="rounded-md border border-dashed border-line bg-background p-5 text-sm text-muted">No showtimes today.</p>}
-                </div>
+                      </thead>
+                      <tbody>
+                        {showtimes.map((showtime) => (
+                          <tr key={showtime.id}>
+                            <td className="whitespace-nowrap border-b border-line/70 px-4 py-3 font-semibold">{showtime.movieTitle}</td>
+                            <td className="whitespace-nowrap border-b border-line/70 px-4 py-3 text-muted">{showtime.cinemaName}</td>
+                            <td className="whitespace-nowrap border-b border-line/70 px-4 py-3 text-muted">{showtime.hallName}</td>
+                            <td className="whitespace-nowrap border-b border-line/70 px-4 py-3 font-mono text-accent">
+                              {formatTimeOnly(showtime.startTime)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {!todaysShowtimes && (
+                      <p role="status" className="flex items-center gap-2 p-5 text-sm text-muted">
+                        <Loader2 size={16} className="animate-spin text-accent" aria-hidden />
+                        Loading today&apos;s sessions…
+                      </p>
+                    )}
+                    {todaysShowtimes && showtimes.length === 0 && (
+                      <p className="rounded-md border border-dashed border-line bg-background p-5 text-sm text-muted">No showtimes today.</p>
+                    )}
+                  </div>
+                )}
               </section>
             </div>
           </>

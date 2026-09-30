@@ -12,9 +12,19 @@ function getDetectorConstructor(): BarcodeDetectorConstructor | null {
   return (window as unknown as { BarcodeDetector?: BarcodeDetectorConstructor }).BarcodeDetector ?? null;
 }
 
+function cameraErrorMessage(error: unknown) {
+  if (error instanceof DOMException && error.name === "NotFoundError") {
+    return "No camera was found on this device. Enter the code by hand instead.";
+  }
+  return "Camera access was refused. Allow the camera, or enter the code by hand.";
+}
+
 export function QrScanner({ onScan }: { onScan: (value: string) => void }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const frameRef = useRef<number | null>(null);
+  const startingRef = useRef(false);
+  const mountedRef = useRef(false);
   const [active, setActive] = useState(false);
   const [error, setError] = useState("");
 
@@ -25,14 +35,24 @@ export function QrScanner({ onScan }: { onScan: (value: string) => void }) {
   );
 
   const stop = useCallback(() => {
+    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+    frameRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
-    setActive(false);
+    if (videoRef.current) videoRef.current.srcObject = null;
+    if (mountedRef.current) setActive(false);
   }, []);
 
-  useEffect(() => stop, [stop]);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      stop();
+    };
+  }, [stop]);
 
   async function start() {
+    if (startingRef.current || streamRef.current) return;
     setError("");
     const Detector = getDetectorConstructor();
     if (!Detector) {
@@ -40,21 +60,32 @@ export function QrScanner({ onScan }: { onScan: (value: string) => void }) {
       return;
     }
 
+    startingRef.current = true;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+      // The page may have been left while the permission prompt was open.
+      if (!mountedRef.current) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       streamRef.current = stream;
       setActive(true);
 
       const video = videoRef.current;
-      if (!video) return;
+      if (!video) {
+        stop();
+        return;
+      }
       video.srcObject = stream;
       await video.play();
+      if (streamRef.current !== stream) return;
 
       const detector = new Detector({ formats: ["qr_code"] });
       const tick = async () => {
-        if (!streamRef.current) return;
+        if (streamRef.current !== stream) return;
         try {
           const results = await detector.detect(video);
+          if (streamRef.current !== stream) return;
           const value = results[0]?.rawValue;
           if (value) {
             stop();
@@ -62,13 +93,16 @@ export function QrScanner({ onScan }: { onScan: (value: string) => void }) {
             return;
           }
         } catch {
+          // The first frames can arrive before the video has data; keep scanning.
         }
-        requestAnimationFrame(() => void tick());
+        frameRef.current = requestAnimationFrame(() => void tick());
       };
-      requestAnimationFrame(() => void tick());
-    } catch {
-      setError("Camera access was refused. Allow the camera, or enter the code by hand.");
+      frameRef.current = requestAnimationFrame(() => void tick());
+    } catch (err) {
+      if (mountedRef.current) setError(cameraErrorMessage(err));
       stop();
+    } finally {
+      startingRef.current = false;
     }
   }
 
@@ -102,10 +136,14 @@ export function QrScanner({ onScan }: { onScan: (value: string) => void }) {
           Camera scanning is not available in this browser. A USB barcode scanner still works: focus the field below and scan.
         </p>
       )}
-      {error && <p className="mt-3 rounded-md border border-danger/40 bg-danger/10 p-3 text-sm text-danger">{error}</p>}
+      {error && (
+        <p role="alert" className="mt-3 rounded-md border border-danger/40 bg-danger/10 p-3 text-sm text-danger">
+          {error}
+        </p>
+      )}
 
       <div className={active ? "mt-4 overflow-hidden rounded-md border border-accent/40" : "hidden"}>
-        <video ref={videoRef} className="aspect-video w-full bg-black object-cover" playsInline muted />
+        <video ref={videoRef} aria-label="Camera preview for ticket scanning" className="aspect-video w-full bg-black object-cover" playsInline muted />
       </div>
     </div>
   );
